@@ -25,6 +25,8 @@ npm run test:e2e
 npm run pack -- --mac --arm64
 ```
 
-词云全文分析需要 Python 3.10+。`npm run setup:analysis` 会在仓库内建立独立环境并安装 jieba；不依赖开发者电脑上的目录。
+GitHub Release 安装包内置词云分析器、Python 运行环境和 jieba，首次打开自动建立分词缓存与初始化标记，后续直接复用。无需安装 Python、运行命令或联网下载依赖。
 
-打包应用从自身 Resources 目录读取分析脚本与停用词，使用系统 Python（Windows 使用 `py -3`），或使用 `QUIET_READER_PYTHON` 指定解释器。应用包不包含 Python 解释器；打包应用的解释器需安装 `jieba==0.42.1`。
+源码运行仍需 Python 3.10+，使用 `npm run setup:analysis` 初始化。制作安装包前，安装 `jieba==0.42.1` 和 `pyinstaller==6.19.0`，运行 `python scripts/build_analyzer.py`，然后为当前机器的系统和架构打包。GitHub Actions 会分别构建 macOS Apple Silicon、macOS Intel 和 Windows x64。
+
+macOS 版本目前未经过 Apple 公证；首次打开若被系统拦截，请在“系统设置 → 隐私与安全性”中允许打开。

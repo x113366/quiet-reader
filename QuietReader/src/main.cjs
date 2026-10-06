@@ -7,6 +7,8 @@ const {sumDays,setTransport}=require('./cloud-sync.cjs');
 setTransport((...args)=>net.fetch(...args));
 const { analyzeBook } = require('./analysis.cjs');
 const {pythonRuntime}=require('./python-runtime.cjs');
+const {initializeRuntime}=require('./first-run.cjs');
+let analysisRuntime, runtimeReady;
 const { defaults, settings } = require('./core.cjs');
 if (process.env.QUIET_READER_DATA) app.setPath('userData', path.resolve(process.env.QUIET_READER_DATA));
 const hasLock=app.requestSingleInstanceLock();
@@ -69,6 +71,9 @@ async function createWindow() {
 }
 app.whenReady().then(async()=>{
   if(!hasLock)return;
+  analysisRuntime=pythonRuntime({projectDir:path.resolve(__dirname,'..'),packaged:app.isPackaged});
+  runtimeReady=initializeRuntime(analysisRuntime,app.getPath('userData'),app.getVersion());
+  runtimeReady.catch(()=>{}); // Reading remains available if initialization fails; analysis reports the error.
   accounts=new Accounts(app.getPath('userData'),safeStorage);store=await accounts.init();
   handler('cloud-status',()=>accounts.status());
   handler('cloud-login',async payload=>{await store.queue;const result=await accounts.login(payload.username,payload.password,!!payload.register,!!payload.importLocal);store=accounts.store;current=null;return result;});
@@ -129,8 +134,8 @@ app.whenReady().then(async()=>{
   handler('analyze', async id=>{
     if(analyses.has(id)) return analyses.get(id);
     const resources=app.isPackaged?path.join(process.resourcesPath,'analysis'):path.join(__dirname,'../analysis');
-    const runtime=pythonRuntime({projectDir:path.resolve(__dirname,'..'),packaged:app.isPackaged});
-    const job=analyzeBook(store,id,resources,runtime);analyses.set(id,job);
+    await runtimeReady;
+    const job=analyzeBook(store,id,resources,analysisRuntime);analyses.set(id,job);
     try{return await job;}finally{analyses.delete(id);}
   });
 

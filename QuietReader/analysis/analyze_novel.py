@@ -7,6 +7,8 @@ coupling the reader to Python or requiring a network service.
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 import hashlib
 import json
 import math
@@ -17,6 +19,13 @@ from pathlib import Path
 
 import jieba
 import jieba.posseg as pseg
+
+if os.environ.get('QUIET_READER_ANALYSIS_CACHE'):
+    jieba.dt.tmp_dir = os.environ['QUIET_READER_ANALYSIS_CACHE']
+if sys.argv[1:] == ['--initialize']:
+    jieba.initialize()
+    print(json.dumps({'ready': True}))
+    sys.exit(0)
 
 ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / "analysis_config.json"

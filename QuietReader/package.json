@@ -1,6 +1,6 @@
 {
   "name": "quiet-reader",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "支持 Supabase 云同步的 TXT 阅读器与词云工作室",
   "main": "src/main.cjs",
   "author": "Quiet Reader contributors",
@@ -11,13 +11,14 @@
     "test:e2e": "node test/e2e.cjs",
     "pack": "electron-builder --dir",
     "dist:win": "electron-builder --win portable --x64",
-    "dist:mac": "electron-builder --mac dmg --arm64 --x64",
+    "dist:mac": "electron-builder --mac dmg",
     "test:features": "node test/features.cjs",
     "test:styles": "node test/styles.cjs",
     "test:interaction": "node test/interaction.cjs",
     "test:books": "node test/books.cjs",
     "test:cloud-live": "node test/cloud-live.cjs",
-    "setup:analysis": "node scripts/setup_analysis.cjs"
+    "setup:analysis": "node scripts/setup_analysis.cjs",
+    "build:analyzer": "python3 scripts/build_analyzer.py"
   },
   "dependencies": {
     "iconv-lite": "0.7.0"
@@ -52,7 +53,12 @@
       {
         "from": "analysis",
         "to": "analysis"
+      },
+      {
+        "from": "runtime/quiet-analyzer",
+        "to": "runtime/quiet-analyzer"
       }
-    ]
+    ],
+    "beforePack": "scripts/check_runtime.cjs"
   }
 }
