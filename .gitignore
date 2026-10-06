@@ -1,0 +1,10 @@
+*.zip
+.DS_Store
+**/__pycache__/
+**/*.pyc
+**/.env
+**/.env.local
+**/cloud-session.bin
+**/.cloud-state.json
+**/.cloud-conflicts.json
+**/device.json

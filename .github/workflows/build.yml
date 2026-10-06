@@ -1,0 +1,31 @@
+name: Desktop packages
+on: [workflow_dispatch]
+jobs:
+  package:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            command: dist:win
+          - os: macos-latest
+            command: dist:mac
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: QuietReader
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: QuietReader/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run ${{ matrix.command }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QuietReader-${{ matrix.os }}
+          path: |
+            QuietReader/release/*.exe
+            QuietReader/release/*.dmg

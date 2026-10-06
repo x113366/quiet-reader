@@ -1,0 +1,57 @@
+{
+  "name": "quiet-reader",
+  "version": "1.0.0",
+  "description": "支持 Supabase 云同步的 TXT 阅读器与词云工作室",
+  "main": "src/main.cjs",
+  "author": "Quiet Reader contributors",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/core.test.cjs test/cloud.cjs",
+    "test:e2e": "node test/e2e.cjs",
+    "pack": "electron-builder --dir",
+    "dist:win": "electron-builder --win portable --x64",
+    "dist:mac": "electron-builder --mac dmg --arm64 --x64",
+    "test:features": "node test/features.cjs",
+    "test:styles": "node test/styles.cjs",
+    "test:interaction": "node test/interaction.cjs",
+    "test:books": "node test/books.cjs",
+    "test:cloud-live": "node test/cloud-live.cjs"
+  },
+  "dependencies": {
+    "iconv-lite": "0.7.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "playwright": "1.58.2"
+  },
+  "build": {
+    "appId": "local.quiet.reader",
+    "productName": "Quiet Reader",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.books",
+      "identity": null
+    },
+    "artifactName": "QuietReader-${version}-${os}-${arch}.${ext}",
+    "extraResources": [
+      {
+        "from": "analysis",
+        "to": "analysis"
+      }
+    ]
+  }
+}

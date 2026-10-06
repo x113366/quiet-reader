@@ -1,0 +1,41 @@
+{
+  "max_keywords": 200,
+  "chunk_chars": 30000,
+  "min_count": 2,
+  "max_token_chars": 40,
+  "hard_stopword_files": [
+    "stopwords_general.txt",
+    "stopwords_narrative.txt",
+    "stopwords_custom.txt"
+  ],
+  "protected_terms": [
+    "omega",
+    "alpha"
+  ],
+  "pos_weights": {
+    "nr": 1.4,
+    "ns": 1.3,
+    "nt": 1.3,
+    "nz": 1.3,
+    "n": 1.0,
+    "vn": 0.75,
+    "v": 0.65,
+    "a": 0.6,
+    "d": 0.2,
+    "r": 0.05,
+    "p": 0.05,
+    "u": 0.0,
+    "c": 0.05
+  },
+  "downweight_terms": {
+    "点头": 0.2,
+    "摇头": 0.2,
+    "看着": 0.25,
+    "说道": 0.2,
+    "说着": 0.2,
+    "伸手": 0.25,
+    "开口": 0.2,
+    "坐下": 0.25,
+    "站起": 0.25
+  }
+}
