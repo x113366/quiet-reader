@@ -6,6 +6,7 @@ const { Accounts } = require('./cloud-account.cjs');
 const {sumDays,setTransport}=require('./cloud-sync.cjs');
 setTransport((...args)=>net.fetch(...args));
 const { analyzeBook } = require('./analysis.cjs');
+const {pythonRuntime}=require('./python-runtime.cjs');
 const { defaults, settings } = require('./core.cjs');
 if (process.env.QUIET_READER_DATA) app.setPath('userData', path.resolve(process.env.QUIET_READER_DATA));
 const hasLock=app.requestSingleInstanceLock();
@@ -128,10 +129,8 @@ app.whenReady().then(async()=>{
   handler('analyze', async id=>{
     if(analyses.has(id)) return analyses.get(id);
     const resources=app.isPackaged?path.join(process.resourcesPath,'analysis'):path.join(__dirname,'../analysis');
-    const localPython=path.join(app.getPath('home'),'Documents/Codex/2026-10-05/dia/.venv/bin/python');
-    let python=process.env.QUIET_READER_PYTHON;
-    if(!python) {try {await fs.access(localPython);python=localPython;} catch {python=process.platform==='win32'?'python':'python3';}}
-    const job=analyzeBook(store,id,resources,python);analyses.set(id,job);
+    const runtime=pythonRuntime({projectDir:path.resolve(__dirname,'..'),packaged:app.isPackaged});
+    const job=analyzeBook(store,id,resources,runtime);analyses.set(id,job);
     try{return await job;}finally{analyses.delete(id);}
   });
 

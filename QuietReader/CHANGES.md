@@ -13,7 +13,7 @@ npm ci
 npm start
 ```
 
-本机优先使用原 dia 项目的 `.venv/bin/python`。其他电脑需要 Python 3（建议 3.10 以上）并安装 `analysis/requirements.txt`；也可通过 `QUIET_READER_PYTHON` 指定解释器。应用包包含分析脚本和停用词，不包含 Python 解释器。缺少依赖时词云界面给出提示，其他阅读功能仍可使用。
+源码运行先安装 Python 3.10+，再执行 `npm run setup:analysis`，在本仓库创建 `.venv` 并安装词云依赖。解释器查找顺序为 `QUIET_READER_PYTHON`、仓库 `.venv`、系统 Python。应用包包含分析脚本和停用词，不包含 Python 解释器。缺少依赖时词云界面给出提示，其他阅读功能仍可使用。
 
 ```sh
 python3 -m pip install -r analysis/requirements.txt

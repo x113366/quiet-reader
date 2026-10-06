@@ -16,7 +16,8 @@
     "test:styles": "node test/styles.cjs",
     "test:interaction": "node test/interaction.cjs",
     "test:books": "node test/books.cjs",
-    "test:cloud-live": "node test/cloud-live.cjs"
+    "test:cloud-live": "node test/cloud-live.cjs",
+    "setup:analysis": "node scripts/setup_analysis.cjs"
   },
   "dependencies": {
     "iconv-lite": "0.7.0"
