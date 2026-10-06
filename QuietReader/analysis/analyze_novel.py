@@ -17,6 +17,9 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 import jieba
 import jieba.posseg as pseg
 
