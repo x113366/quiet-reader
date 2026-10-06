@@ -144,6 +144,7 @@ window.addEventListener('drop',e=>{e.preventDefault();dragDepth=0;$('drop-hint')
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='o'){e.preventDefault();pick().catch(report);}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='l'){e.preventDefault();showLibrary().catch(report);}});
 function showSearch(){if(!book||screenMode!=='reading')return;$('search').showModal();$('query').focus();$('query').select();}
 $('search-button').onclick=showSearch;
+$('search').addEventListener('close',()=>{highlight=null;drawSoon();});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'){e.preventDefault();showSearch();}if(e.key==='Escape'&&!$('search').open){highlight=null;drawSoon();}});
 $('search-form').onsubmit=e=>{e.preventDefault();if(!book)return;$('search-count').textContent='正在查找…';searchWorker.postMessage({request:++searchRequest,query:$('query').value,mode:$('search-mode').value});};
 searchWorker.onmessage=({data})=>{if(data.request!==searchRequest)return;if(data.error){report(new Error(data.error));return;}matches=data.results;matchIndex=-1;$('matches').replaceChildren();$('search-count').textContent=matches.length===200?'显示前 200 处，请缩短范围或补充关键词':matches.length?`找到 ${matches.length} 处，点击结果跳转`:'没有找到匹配内容，可尝试模糊匹配';
