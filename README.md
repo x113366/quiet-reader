@@ -30,3 +30,7 @@ GitHub Release 安装包内置词云分析器、Python 运行环境和 jieba，�
 源码运行仍需 Python 3.10+，使用 `npm run setup:analysis` 初始化。制作安装包前，安装 `jieba==0.42.1` 和 `pyinstaller==6.19.0`，运行 `python scripts/build_analyzer.py`，然后为当前机器的系统和架构打包。GitHub Actions 会分别构建 macOS Apple Silicon、macOS Intel 和 Windows x64。
 
 macOS 版本目前未经过 Apple 公证；首次打开若被系统拦截，请在“系统设置 → 隐私与安全性”中允许打开。
+
+## Liquid Lyrics · 网易云桌面伴侣
+
+原生 macOS 26 Swift/SwiftUI 应用位于 [LiquidLyricsPrototype](LiquidLyricsPrototype/README.md)，提供真实网易云播放同步、歌词与原生 Liquid Glass 悬浮窗口。
