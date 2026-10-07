@@ -1,6 +1,6 @@
 # 静读 · iPhone PWA
 
-通过 Safari 打开 **https://x113366.github.io/quiet-reader/**，选择「分享 → 添加到主屏幕」，再从图标进入独立窗口。首次联网打开并等资源安装完成，已下载书籍即可离线重开。建议 iOS 16 或更新版本。
+通过 Safari 打开 **https://quiet-reader-405.pages.dev/**，选择「分享 → 添加到主屏幕」，再从图标进入独立窗口。首次联网打开并等资源安装完成，已下载书籍即可离线重开。建议 iOS 16 或更新版本。
 
 ## 开发与部署
 
@@ -14,7 +14,16 @@ npm run dev
 
 纯静态产物位于 `mobile/dist/`，可部署到任意 HTTPS 静态站点或子路径。没有 Electron、Python、词云分析器或词云运行库；仅构建阶段需要 Node.js 24。直接复用桌面 `cleaning.cjs`、`search-engine.js` 和公开 `cloud-config.json`。
 
-`.github/workflows/mobile-pages.yml` 在 main 更新相关文件后构建并发布 GitHub Pages。其他托管平台应将 `dist/` 作为站点根目录；不要将整个仓库上传。Service Worker 按构建内容生成版本，更新下载完成后显示「新版本已就绪 · 更新」，点击保存进度并切换。应用只缓存同源静态资源，不缓存登录或 RPC 响应。
+主站托管于 Cloudflare Pages，项目名为 `quiet-reader`，固定网址为 **https://quiet-reader-405.pages.dev/**。首次部署已完成。已登录 Wrangler 后，在 `mobile/` 运行：
+
+```sh
+npm run build
+npx wrangler pages deploy dist --project-name quiet-reader --branch main
+```
+
+`wrangler.toml` 保存公开的项目名与构建目录，不包含凭据。Cloudflare 当前采用手动部署，推送 GitHub 不会自动更新 Cloudflare；重新发布时执行上面的命令。
+
+`.github/workflows/mobile-pages.yml` 在 main 更新相关文件后构建并发布 GitHub Pages 镜像（https://x113366.github.io/quiet-reader/）。两个域名的本机缓存独立，通过同一账号同步；主屏幕安装请使用 Cloudflare 主站。其他托管平台应将 `dist/` 作为站点根目录；不要将整个仓库上传。Service Worker 按构建内容生成版本，更新下载完成后显示「新版本已就绪 · 更新」，点击保存进度并切换。应用只缓存同源静态资源，不缓存登录或 RPC 响应。
 
 ## 使用
 

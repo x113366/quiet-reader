@@ -6,7 +6,7 @@ macOS / Windows TXT 阅读器，包含纯净阅读、书架、书评、广告清
 
 移动版位于 [`mobile/`](mobile/README.md)，通过 Safari 添加到主屏幕，提供离线 HTML 阅读、统一账号同步、书评、主题与阅读统计。
 
-访问：**https://x113366.github.io/quiet-reader/**
+访问：**https://quiet-reader-405.pages.dev/**
 
 ```sh
 cd mobile
@@ -15,7 +15,7 @@ npm run build
 npm run dev
 ```
 
-GitHub Pages 自动构建独立移动版；桌面功能和词云保留。详见 [移动版说明](mobile/README.md) 与 [验证记录](mobile/VALIDATION.md)。
+移动版已部署到 Cloudflare Pages；GitHub Pages 保留为自动构建镜像。桌面功能和词云保留。详见 [移动版说明](mobile/README.md) 与 [验证记录](mobile/VALIDATION.md)。
 
 ## 桌面版
 

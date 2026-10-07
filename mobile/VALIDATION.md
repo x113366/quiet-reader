@@ -21,3 +21,12 @@ WebKit 的 Playwright 网络路由与 Service Worker 不能可靠混用，因此
 已验证 HTML 选区以及手势保护；iPhone 真机系统复制菜单、剪贴板、分享面板、主屏幕安装和锁屏仍需真机验收。时间累计逻辑按 visibility/pagehide 暂停，90 秒无操作暂停，每 5 秒持久保存；不声称自动化模拟等价于真实锁屏。
 
 源码中的 64 MB 导入上限与全量 HTML 排版不代表大文件已经做过真机性能压测。
+
+## Cloudflare Pages 正式部署
+
+- 项目：`quiet-reader`；固定地址：https://quiet-reader-405.pages.dev/。
+- 首次部署：https://b6b1b65b.quiet-reader-405.pages.dev。
+- 正式域名 HTTPS 返回 HTTP/2 200。
+- Chromium iPhone 尺寸在正式域名验证：书架渲染、standalone manifest、Service Worker 激活、TXT 导入、断网刷新和正文打开全部通过，无 pageerror。
+- 部署前重新执行生产构建及 3 项协议测试，均通过。项目没有独立 lint 脚本。
+- Cloudflare 使用 Wrangler 手动发布，源码继续推送 GitHub；凭据未写入仓库。
