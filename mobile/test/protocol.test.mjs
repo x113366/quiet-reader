@@ -1,0 +1,138 @@
+import test from "node:test";
+import { readFileSync } from "node:fs";
+import assert from "node:assert/strict";
+import "fake-indexeddb/auto";
+import { createRequire } from "node:module";
+import { digest, hash, paragraphs } from "../src/model.js";
+import { synchronize, resolve, download } from "../src/sync.js";
+import { empty, put, get, save, load, assetKey } from "../src/storage.js";
+const require = createRequire(import.meta.url),
+  desktop = require("../../QuietReader/src/cloud-sync.cjs"),
+  core = {
+    paragraphs: Function(
+      readFileSync(
+        new URL("../../QuietReader/src/core.cjs", import.meta.url),
+        "utf8",
+      ).match(/function paragraphs[\s\S]*?(?=function identity)/)[0] +
+        ";return paragraphs",
+    )(),
+  };
+function server() {
+  const rows = new Map(),
+    chunks = new Map();
+  return {
+    rows,
+    call: async (name, a = {}) => {
+      const r = rows.get(a.p_key);
+      if (name === "reader_list")
+        return [...rows]
+          .filter(([key]) => key > (a.p_after || ""))
+          .sort()
+          .slice(0, 500)
+          .map(([key, r]) => ({ key, ...r }));
+      if (name === "reader_get") return structuredClone(r);
+      if (name === "reader_put") {
+        if ((r?.version || 0) !== a.p_version) return { ok: false };
+        const next = {
+          payload: structuredClone(a.p_payload),
+          hash: a.p_hash,
+          version: a.p_version + 1,
+        };
+        rows.set(a.p_key, next);
+        return { ok: true, version: next.version };
+      }
+      if (name === "reader_chunk_put") {
+        chunks.set(a.p_hash + "/" + a.p_part, a.p_data);
+        return null;
+      }
+      if (name === "reader_chunk_get")
+        return chunks.get(a.p_hash + "/" + a.p_part);
+      throw Error(name);
+    },
+  };
+}
+test("desktop digest and paragraph compatibility", async () => {
+  const value = {
+    unknown: { z: 2, a: 1 },
+    progress: { anchor: { paragraph: 5, offset: 9 } },
+    array: [2, 1],
+  };
+  assert.equal(await digest(value), desktop.digest(value));
+  const text = "\u3000第一章\r\n\r\n　正文 😀\n\n另一个段落";
+  assert.deepEqual(paragraphs(text), core.paragraphs(text));
+});
+test("concurrent progress conflicts, guarded resolution, retained unknown fields", async () => {
+  const s = server(),
+    a = empty(),
+    b = empty(),
+    key = "book/" + "a".repeat(64) + "/reading";
+  a.entries[key] = {
+    payload: {
+      progress: { anchor: { paragraph: 1, offset: 0 } },
+      desktopFuture: { keep: true },
+    },
+  };
+  await synchronize("a", a, s.call, async () => {});
+  await synchronize("b", b, s.call, async () => {});
+  a.entries[key].payload.progress.anchor.paragraph = 8;
+  b.entries[key].payload.progress.anchor.paragraph = 3;
+  await synchronize("a", a, s.call, async () => {});
+  await synchronize("b", b, s.call, async () => {});
+  assert.equal(Object.keys(b.conflicts).length, 1);
+  assert.equal(s.rows.get(key).payload.progress.anchor.paragraph, 8);
+  await resolve("b", b, key, "remote", s.call, async () => {});
+  assert.equal(b.entries[key].payload.progress.anchor.paragraph, 8);
+  assert.equal(b.entries[key].payload.desktopFuture.keep, true);
+  assert.equal(b.history.length, 1);
+  s.rows.set("prefs/studio", {
+    version: 1,
+    hash: await digest({ future: 42 }),
+    payload: { future: 42 },
+  });
+  await synchronize("b", b, s.call, async () => {});
+  assert.deepEqual(b.entries["prefs/studio"].payload, { future: 42 });
+});
+test("offline edits checkpoint on reconnect; account and byte isolation; chunk integrity", async () => {
+  const s = server(),
+    state = empty(),
+    key = "asset/books/" + "b".repeat(64) + ".txt",
+    bytes = new TextEncoder().encode("书籍正文".repeat(50000));
+  state.entries[key] = {
+    payload: {
+      hash: await hash(bytes),
+      size: bytes.length,
+      parts: Math.ceil(bytes.length / 393216),
+    },
+  };
+  await put("assets", assetKey("alice", key), bytes.buffer);
+  await save("alice", state);
+  assert.equal((await load("bob")).entries[key], undefined);
+  assert.equal(await get("assets", assetKey("bob", key)), undefined);
+  await assert.rejects(
+    synchronize(
+      "alice",
+      state,
+      async () => {
+        throw Error("offline");
+      },
+      async () => {},
+    ),
+  );
+  assert.equal(state.entries[key].baseHash, undefined);
+  await synchronize("alice", state, s.call, async () => {});
+  const restored = await download(
+    "alice-restore",
+    key,
+    state.entries[key].payload,
+    s.call,
+  );
+  assert.equal(await hash(restored), await hash(bytes));
+  await assert.rejects(
+    download(
+      "broken",
+      key,
+      { ...state.entries[key].payload, hash: "c".repeat(64) },
+      s.call,
+    ),
+  );
+});

@@ -1,0 +1,17 @@
+{
+  "name": "quiet-reader-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "node test/e2e.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "@playwright/test": "1.58.2",
+    "fake-indexeddb": "6.2.4"
+  }
+}
