@@ -316,7 +316,7 @@ progress {
     max(var(--reading-padding), env(safe-area-inset-right))
     calc(60px + env(safe-area-inset-bottom))
     max(var(--reading-padding), env(safe-area-inset-left));
-  font-family: "Songti SC", "STSong", "PingFang SC", serif;
+  font-family: var(--reading-font, "Songti SC", "STSong", "PingFang SC", serif);
   font-size: var(--reading-size);
   line-height: var(--reading-leading);
   overflow-wrap: anywhere;
@@ -570,4 +570,12 @@ body[data-ui="light"] .cover-imprint {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+.font-preview {
+  padding: 16px;
+  background: var(--panel);
+  font-size: 22px;
+  line-height: 1.8;
+  border-radius: 6px;
 }

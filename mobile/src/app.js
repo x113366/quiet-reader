@@ -3,6 +3,7 @@ import {
   count,
   decode,
   defaults,
+  fonts,
   settings,
   hash,
   sumDays,
@@ -300,6 +301,7 @@ function readerStyle() {
       ),
   );
   const el = $("reader");
+  el.style.setProperty("--reading-font", fonts[s.mobileFont].stack);
   el.style.setProperty("--reading-bg", s.background);
   el.style.setProperty("--reading-color", s.color);
   el.style.setProperty("--reading-size", s.fontSize + "px");
@@ -488,12 +490,26 @@ function appearancePanel() {
   );
   dialog(
     "阅读排版",
-    `<div class="two"><label>背景<input id="bg" type="color" value="${s.background}"></label><label>文字<input id="fg" type="color" value="${s.color}"></label></div><label>字号<input id="size" type="range" min="14" max="40" value="${s.fontSize}"></label><label>行距<input id="leading" type="range" min="1.2" max="2.8" step="0.1" value="${s.lineHeight}"></label><label>左右留白<input id="padding" type="range" min="16" max="64" value="${s.padding}"></label><label>主题名称<input id="theme-name" maxlength="40" placeholder="我的纸张"></label><button id="appearance-save" class="primary">保存排版与主题</button><div id="themes"></div>`,
+    `<label>字体<select id="font">${Object.entries(fonts)
+      .map(
+        ([id, font]) =>
+          `<option value="${id}" ${s.mobileFont === id ? "selected" : ""}>${font.name}</option>`,
+      )
+      .join(
+        "",
+      )}</select></label><p id="font-preview" class="font-preview">风过书页，字里有光。Quiet Reader 012345</p><p class="hint">使用设备自带字体，离线可用；未安装的字体会自动使用后备字体。</p><div class="two"><label>背景<input id="bg" type="color" value="${s.background}"></label><label>文字<input id="fg" type="color" value="${s.color}"></label></div><label>字号<input id="size" type="range" min="14" max="40" value="${s.fontSize}"></label><label>行距<input id="leading" type="range" min="1.2" max="2.8" step="0.1" value="${s.lineHeight}"></label><label>左右留白<input id="padding" type="range" min="16" max="64" value="${s.padding}"></label><label>主题名称<input id="theme-name" maxlength="40" placeholder="我的纸张"></label><button id="appearance-save" class="primary">保存排版与主题</button><div id="themes"></div>`,
     () => {
+      const previewFont = () => {
+        $("font-preview").style.fontFamily = fonts[$("font").value].stack;
+      };
+      $("font").onchange = previewFont;
+      previewFont();
       $("appearance-save").onclick = () =>
         task(async () => {
           const a = anchor(),
             s = settings({
+              ...payload(keyFor(book.id, "reading")).settings,
+              mobileFont: $("font").value,
               background: $("bg").value,
               color: $("fg").value,
               fontSize: Number($("size").value),

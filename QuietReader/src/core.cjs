@@ -24,7 +24,7 @@ function paragraphs(text) {
 function identity(bytes) { return crypto.createHash('sha256').update(bytes).digest('hex'); }
 function settings(input = {}) {
   const number = (key, min, max) => Number.isFinite(input[key]) ? Math.max(min, Math.min(max, input[key])) : defaults[key];
-  return { fontSize: number('fontSize', 14, 40), lineHeight: number('lineHeight', 1.2, 2.8), padding: number('padding', 16, 240), background: /^#[0-9a-f]{6}$/i.test(input.background) ? input.background : defaults.background, color: /^#[0-9a-f]{6}$/i.test(input.color) ? input.color : defaults.color };
+  return { ...(['songti','pingfang','kaiti','mono'].includes(input.mobileFont)?{mobileFont:input.mobileFont}:{}), fontSize: number('fontSize', 14, 40), lineHeight: number('lineHeight', 1.2, 2.8), padding: number('padding', 16, 240), background: /^#[0-9a-f]{6}$/i.test(input.background) ? input.background : defaults.background, color: /^#[0-9a-f]{6}$/i.test(input.color) ? input.color : defaults.color };
 }
 function chapters(content) {
   const heading=/^(?:第[零〇一二三四五六七八九十百千万两\d]+[章回节卷部篇](?:\s|[：:、.．—-]|[^章回节卷部篇])?.*|(?:序章|序言|楔子|引子|前言|尾声|后记|终章|番外)(?:\s|[：:、.．一二三四五六七八九十\d]|$).*|chapter\s+\d+\b.*|prologue|epilogue)$/i;

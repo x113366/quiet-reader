@@ -27,7 +27,23 @@ export function decode(bytes, encoding = "auto") {
   if (text.includes("\0")) throw Error("请选择 TXT 文本文件");
   return { text, encoding };
 }
+export const fonts = {
+  songti: {
+    name: "宋体 · 书页",
+    stack: '"Songti SC", "STSong", "PingFang SC", serif',
+  },
+  pingfang: {
+    name: "苹方 · 清晰",
+    stack: '"PingFang SC", "Hiragino Sans GB", sans-serif',
+  },
+  kaiti: {
+    name: "楷体 · 雅致",
+    stack: '"Kaiti SC", "STKaiti", "KaiTi", serif',
+  },
+  mono: { name: "等宽 · 简洁", stack: '"SFMono-Regular", Menlo, monospace' },
+};
 export const defaults = {
+  mobileFont: "songti",
   fontSize: 22,
   lineHeight: 1.9,
   padding: 24,
@@ -74,5 +90,6 @@ export function settings(value = {}) {
     v[key] = Math.max(min, Math.min(max, Number(v[key]) || defaults[key]));
   for (const key of ["color", "background"])
     if (!/^#[0-9a-f]{6}$/i.test(v[key])) v[key] = defaults[key];
+  if (!Object.hasOwn(fonts, v.mobileFont)) v.mobileFont = defaults.mobileFont;
   return v;
 }

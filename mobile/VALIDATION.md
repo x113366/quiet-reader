@@ -30,3 +30,7 @@ WebKit 的 Playwright 网络路由与 Service Worker 不能可靠混用，因此
 - Chromium iPhone 尺寸在正式域名验证：书架渲染、standalone manifest、Service Worker 激活、TXT 导入、断网刷新和正文打开全部通过，无 pageerror。
 - 部署前重新执行生产构建及 3 项协议测试，均通过。项目没有独立 lint 脚本。
 - Cloudflare 使用 Wrangler 手动发布，源码继续推送 GitHub；凭据未写入仓库。
+
+## 字体选择
+
+新增宋体、苹方、楷体、等宽四种设备字体，包含预览、按书和主题持久保存。WebKit 验证切换、预览、保存、刷新重开后恢复通过，无 pageerror。桌面设置校验增加可选 mobileFont 白名单保留，避免桌面同步时丢失选择；桌面原有 11 项与移动端 3 项测试均通过。
