@@ -67,7 +67,7 @@ worker.onmessage=({data})=>{
 worker.onerror=e=>{working=false;readyResolve?.();readyResolve=null;report(new Error('排版失败：'+e.message));};
 function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(report),Math.max(0,Math.min(500,3000-(Date.now()-lastSaved))));}
 async function save(){
-  clearTimeout(saveTimer);if(!book)return;if(cloudTransfer)await cloudJob;
+  clearTimeout(saveTimer);if(!book)return;if(cloudTransfer)await cloudJob.catch(()=>{});
   await readyPromise;remember();
   const readCount=currentReadCount();
   const currentAnchor=capture(),moved=JSON.stringify(currentAnchor)!==JSON.stringify(lastReadingAnchor);
