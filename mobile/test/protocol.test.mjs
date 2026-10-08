@@ -136,3 +136,38 @@ test("offline edits checkpoint on reconnect; account and byte isolation; chunk i
     ),
   );
 });
+
+test('desktop and web exchange progress, merge layout edits, defer active remote jumps and preserve real conflicts', async () => {
+  const fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');
+  const {Store}=require('../../QuietReader/src/store.cjs');
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'reader-progress-'));
+  try{
+    const store=new Store(root);await store.init();
+    const id='a'.repeat(64),key=`book/${id}/reading`,remote=server(),web=empty();
+    await store.write({id,title:'同步',encoding:'utf-8',settings:require('../../QuietReader/src/core.cjs').defaults,window:{width:960,height:780},progress:{anchor:{paragraph:1,offset:0}},counts:{read:10,total:100}});
+    const desktopSync=new desktop.CloudSync(store,{token:'test'},'desktop',remote.call);
+    await desktopSync.run();await synchronize('test',web,remote.call,async()=>{});
+    web.entries[key].payload.progress={anchor:{paragraph:5,offset:4},epoch:2,snapshots:{}};
+    web.entries[key].payload.counts.read=55;
+    await synchronize('test',web,remote.call,async()=>{});
+    await store.updateBook(id,b=>{b.window.width=1000;});
+    assert.equal((await desktopSync.run(key)).conflicts.length,0);
+    assert.equal((await store.read(id)).progress.anchor.paragraph,1);
+    assert.equal((await desktopSync.run()).conflicts.length,0);
+    assert.equal((await store.read(id)).progress.anchor.paragraph,5);
+    assert.equal((await store.read(id)).counts.read,55);
+    await synchronize('test',web,remote.call,async()=>{});
+    await store.updateBook(id,b=>{b.progress={anchor:{paragraph:8,offset:2}};b.counts.read=80;});
+    await desktopSync.run();
+    web.entries[key].payload.settings.fontSize=24;
+    assert.equal(await synchronize('test',web,remote.call,async()=>{}),0);
+    assert.equal(web.entries[key].payload.progress.anchor.paragraph,8);
+    assert.equal(web.entries[key].payload.settings.fontSize,24);
+    await desktopSync.run();
+    await store.updateBook(id,b=>{b.progress={anchor:{paragraph:3,offset:0}};});
+    web.entries[key].payload.progress={anchor:{paragraph:9,offset:0}};
+    await desktopSync.run();
+    assert.equal(await synchronize('test',web,remote.call,async()=>{}),1);
+    assert.equal(web.entries[key].payload.progress.anchor.paragraph,9);
+  }finally{await fs.rm(root,{recursive:true,force:true});}
+});

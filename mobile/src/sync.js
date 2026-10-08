@@ -1,3 +1,4 @@
+import readingMerge from "../../QuietReader/src/reading-merge.cjs";
 import config from "../../QuietReader/src/cloud-config.json" with { type: "json" };
 import { digest, hash } from "./model.js";
 import { get, put, assetKey } from "./storage.js";
@@ -80,7 +81,7 @@ export async function download(account, key, payload, call) {
 }
 // Caller serializes local mutations and account switches with this operation.
 // Every entry is retained verbatim, including desktop-only and future fields.
-export async function synchronize(account, state, call, checkpoint) {
+export async function synchronize(account, state, call, checkpoint, activeReadingKey = null) {
   const remote = new Map();
   let after = "";
   while (true) {
@@ -97,13 +98,24 @@ export async function synchronize(account, state, call, checkpoint) {
       row = remote.get(key);
     const localHash = local ? await digest(local.payload) : null;
     if (row && localHash === row.hash) {
-      Object.assign(local, { version: row.version, baseHash: row.hash });
+      Object.assign(local, { version: row.version, baseHash: row.hash, basePayload: structuredClone(local.payload) });
       delete state.conflicts[key];
     } else {
       const changed = local && localHash !== local.baseHash;
       const remoteChanged = row && (!local || row.version !== local.version);
       if (changed && remoteChanged) {
         const other = await call("reader_get", { p_key: key });
+        const merged = key.endsWith('/reading') && other ? readingMerge.mergeReading(local.basePayload, local.payload, other.payload) : null;
+        if (merged && key === activeReadingKey && (!readingMerge.equal(readingMerge.position(merged), readingMerge.position(local.payload)) || !readingMerge.equal(merged.settings,local.payload.settings))) continue;
+        if (merged) {
+          const result = await upload(account, key, {payload:merged}, other.version, call);
+          if (result.ok) {
+            state.entries[key] = {payload:merged,version:result.version,baseHash:result.hash,basePayload:structuredClone(merged)};
+            delete state.conflicts[key];
+            await checkpoint();
+            continue;
+          }
+        }
         state.conflicts[key] = { remote: other, localHash };
       } else if (changed) {
         const result = await upload(
@@ -117,6 +129,7 @@ export async function synchronize(account, state, call, checkpoint) {
           Object.assign(local, {
             version: result.version,
             baseHash: result.hash,
+            basePayload: structuredClone(local.payload),
           });
           delete state.conflicts[key];
         } else
@@ -125,12 +138,14 @@ export async function synchronize(account, state, call, checkpoint) {
             localHash,
           };
       } else if (row && (remoteChanged || !local)) {
+        if (key === activeReadingKey) continue;
         const other = await call("reader_get", { p_key: key });
         if (!other) throw Error("云端已变化，请重试");
         state.entries[key] = {
           payload: other.payload,
           version: other.version,
           baseHash: other.hash,
+          basePayload: structuredClone(other.payload),
         };
         delete state.conflicts[key];
       }
@@ -165,11 +180,12 @@ export async function resolve(account, state, key, choice, call, checkpoint) {
       payload: remote.payload,
       version: remote.version,
       baseHash: remote.hash,
+      basePayload: structuredClone(remote.payload),
     };
   else {
     const result = await upload(account, key, entry, remote.version, call);
     if (!result.ok) throw Error("云端版本已变化");
-    Object.assign(entry, { version: result.version, baseHash: result.hash });
+    Object.assign(entry, { version: result.version, baseHash: result.hash, basePayload: structuredClone(entry.payload) });
   }
   delete state.conflicts[key];
   await checkpoint();

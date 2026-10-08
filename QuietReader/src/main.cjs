@@ -78,7 +78,7 @@ app.whenReady().then(async()=>{
   handler('cloud-status',()=>accounts.status());
   handler('cloud-login',async payload=>{await store.queue;const result=await accounts.login(payload.username,payload.password,!!payload.register,!!payload.importLocal);store=accounts.store;current=null;return result;});
   handler('cloud-logout',async()=>{await store.queue;const result=await accounts.logout();store=accounts.store;current=null;return result;});
-  handler('cloud-sync',()=>accounts.synchronize());
+  handler('cloud-sync',active=>accounts.synchronize(active&&current?`book/${current}/reading`:null));
   handler('cloud-conflicts',()=>accounts.sync?accounts.sync.conflicts():[]);
   handler('cloud-resolve',(key,choice)=>accounts.exclusive(()=>accounts.sync.resolve(key,choice)));
   handler('studio-state',value=>{if(!value||JSON.stringify(value).length>8000000)throw new Error('词云草稿过大');return store.updatePreferences(p=>{p.studio=value;});});

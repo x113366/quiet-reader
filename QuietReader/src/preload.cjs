@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld('reader',{
   cloudLogin:payload=>ipcRenderer.invoke('cloud-login',payload),
   cloudLogout:()=>ipcRenderer.invoke('cloud-logout'),
   cloudConflicts:()=>ipcRenderer.invoke('cloud-conflicts'),
-  cloudSync:()=>ipcRenderer.invoke('cloud-sync'),
+  cloudSync:active=>ipcRenderer.invoke('cloud-sync',active),
   cloudResolve:(key,choice)=>ipcRenderer.invoke('cloud-resolve',key,choice),
   studioState:value=>ipcRenderer.invoke('studio-state',value),
   saveReview:(id,review)=>ipcRenderer.invoke('book-review',id,review),

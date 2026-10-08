@@ -1,3 +1,4 @@
+let savedScreenAnchor=null;
 import {
   paragraphs,
   count,
@@ -196,6 +197,7 @@ async function bytesFor(key) {
   return download(account, key, entry.payload, client(session));
 }
 async function openBook(id) {
+  if(session&&!book&&navigator.onLine){try{await syncNow();}catch(error){toast(error.message);}}
   const base = payload(keyFor(id, "base"));
   const bytes = await bytesFor(`asset/books/${id}.txt`);
   content = paragraphs(decode(bytes, base.encoding).text);
@@ -283,9 +285,10 @@ async function openBook(id) {
     },
     { passive: true },
   );
-  const anchor = payload(keyFor(id, "reading")).progress?.anchor;
+  const restoredAnchor = payload(keyFor(id, "reading")).progress?.anchor;
   requestAnimationFrame(() => {
-    jumpAnchor(anchor || { paragraph: 0, offset: 0 });
+    jumpAnchor(restoredAnchor || { paragraph: 0, offset: 0 });
+    savedScreenAnchor=JSON.stringify(anchor());
     updateProgressLabel();
   });
   lastTick = performance.now();
@@ -344,13 +347,16 @@ function updateProgressLabel() {
 }
 async function saveProgress() {
   if (!book) return;
+  const currentAnchor=anchor();
+  if(JSON.stringify(currentAnchor)===savedScreenAnchor)return;
+  savedScreenAnchor=JSON.stringify(currentAnchor);
   const key = keyFor(book.id, "reading"),
     old = payload(key);
   set(key, {
     ...old,
     progress: {
       ...old.progress,
-      anchor: anchor(),
+      anchor: currentAnchor,
       epoch: (old.progress?.epoch || 0) + 1,
       snapshots: {},
     },
@@ -835,7 +841,6 @@ async function syncNow() {
   if (busy) return;
   if (book) {
     await saveProgress();
-    await library();
   }
   busy = true;
   toast("正在同步…");
@@ -845,8 +850,9 @@ async function syncNow() {
       state,
       client(session),
       persist,
+      book ? keyFor(book.id, "reading") : null,
     );
-    await library();
+    if (!book) await library();
     toast(
       conflicts
         ? `有 ${conflicts} 项冲突，请选择保留的版本`
@@ -969,12 +975,12 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     pauseTime();
     active = false;
-    task(saveProgress);
+    task(async()=>{await saveProgress();if(session&&navigator.onLine)await syncNow();});
   } else {
     active = true;
     lastTick = performance.now();
     activity();
-    if (session && !book) task(syncNow);
+    if (session) task(syncNow);
   }
 });
 window.addEventListener("pagehide", () => {
@@ -987,10 +993,10 @@ window.addEventListener("pageshow", () => {
   lastTick = performance.now();
 });
 window.addEventListener("online", () => {
-  if (session && !book) task(syncNow);
+  if (session) task(syncNow);
 });
 setInterval(() => {
-  if (session && !book && !panel.open && navigator.onLine) task(syncNow);
+  if (session && !panel.open && navigator.onLine) task(syncNow);
 }, 60000);
 window.addEventListener("keydown", (e) => {
   activity();

@@ -31,7 +31,7 @@ class Accounts{
   let warning='';try{if(this.session)await rpc('reader_logout',{p_token:this.session.token});}catch{warning='已退出本机登录，离线会话将在云端到期后失效。';}
   await fs.rm(path.join(this.root,'cloud-session.bin'),{force:true});this.session=null;await this.select();this.lastError=warning;return this.status();
  }
- async synchronize(){if(!this.sync)throw new Error('请先登录');return this.exclusive(()=>this.sync.run());}
+ async synchronize(activeReadingKey=null){if(!this.sync)throw new Error('请先登录');return this.exclusive(()=>this.sync.run(activeReadingKey));}
  async exclusive(action){if(this.busy)throw new Error('同步正在进行');this.busy=true;const operation=this.store.queue.then(action);this.store.queue=operation.catch(()=>{});try{const result=await operation;this.lastError='';return result;}catch(e){this.lastError=e.message;throw e;}finally{this.busy=false;}}
 }
 module.exports={Accounts};

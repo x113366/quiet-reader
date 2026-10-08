@@ -1,5 +1,6 @@
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
 const config=require('./cloud-config.json');
+const {mergeReading,position,equal}=require('./reading-merge.cjs');
 const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
 function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().filter(k=>value[k]!==undefined).map(k=>[k,stable(value[k])]));return value;}
 const digest=value=>hash(JSON.stringify(stable(value)));
@@ -61,22 +62,27 @@ class CloudSync{
   else throw new Error('不支持的云端数据类型');
   await atomic(path.join(this.store.root,'preferences.json'),JSON.stringify(p));
  }
- async run(){
+ async run(activeReadingKey=null){
   const stateFile=path.join(this.store.root,'.cloud-state.json'),conflictFile=path.join(this.store.root,'.cloud-conflicts.json');
   const state=await json(stateFile,{}),conflicts={};const local=await this.entries(),remote=new Map();let after='';
   while(true){const rows=await this.call('reader_list',{p_after:after});for(const r of rows)remote.set(r.key,r);if(rows.length<500)break;after=rows.at(-1).key;}
   let uploaded=0,downloaded=0;
   for(const key of [...new Set([...local.keys(),...remote.keys()])].sort()){
    const value=local.get(key),remoteRow=remote.get(key),base=state[key];const localHash=value===undefined?null:digest(this.payload(value));
-   if(remoteRow&&localHash===remoteRow.hash){state[key]={version:remoteRow.version,hash:localHash};continue;}
+   if(remoteRow&&localHash===remoteRow.hash){state[key]={version:remoteRow.version,hash:localHash,payload:this.payload(value)};continue;}
    const localChanged=value!==undefined&&(!base||base.hash!==localHash),remoteChanged=!!remoteRow&&(!base||base.version!==remoteRow.version);
-   if(localChanged&&remoteChanged){const other=await this.call('reader_get',{p_key:key});conflicts[key]={remote:other,localHash};continue;}
+   if(localChanged&&remoteChanged){const other=await this.call('reader_get',{p_key:key});
+    const merged=key.endsWith('/reading')&&other?mergeReading(base?.payload,this.payload(value),other.payload):null;
+    if(merged&&key===activeReadingKey&&(!equal(position(merged),position(value))||!equal(merged.settings,value.settings)))continue;
+    if(merged){const result=await this.upload(key,merged,other.version);if(result.ok){await this.apply(key,merged);state[key]={version:result.version,hash:digest(merged),payload:merged};uploaded++;await atomic(stateFile,JSON.stringify(state));continue;}}
+    conflicts[key]={remote:other,localHash};continue;}
    if(localChanged||(!remoteRow&&value!==undefined)){
     const result=await this.upload(key,value,remoteRow?.version||0);
     if(!result.ok){conflicts[key]={remote:await this.call('reader_get',{p_key:key}),localHash};continue;}
-    state[key]={version:result.version,hash:localHash};uploaded++;
+    state[key]={version:result.version,hash:localHash,payload:this.payload(value)};uploaded++;
    }else if(remoteRow&&(remoteChanged||value===undefined)){
-    const other=await this.call('reader_get',{p_key:key});if(!other)throw new Error('云端数据已变化，请重试');await this.apply(key,other.payload);state[key]={version:other.version,hash:other.hash};downloaded++;
+    if(key===activeReadingKey)continue;
+    const other=await this.call('reader_get',{p_key:key});if(!other)throw new Error('云端数据已变化，请重试');await this.apply(key,other.payload);state[key]={version:other.version,hash:other.hash,payload:other.payload};downloaded++;
    }
    // Checkpoint every resource: failed requests never mark later work as synced.
    await atomic(stateFile,JSON.stringify(state));
@@ -91,8 +97,8 @@ class CloudSync{
   if(!remote||remote.version!==entry.remote.version||digest(this.payload(local))!==entry.localHash)throw new Error('数据已变化，请重新同步后选择');
   if(local?._bytes)await atomic(path.join(this.store.root,'conflicts',`${Date.now()}-${hash(key)}.bin`),local._bytes);
   await atomic(path.join(this.store.root,'conflicts',`${Date.now()}-${hash(key)}.json`),JSON.stringify({key,local:this.payload(local),remote,choice}));
-  if(choice==='remote'){await this.apply(key,remote.payload);state[key]={version:remote.version,hash:remote.hash};}
-  else{const result=await this.upload(key,local,remote.version);if(!result.ok)throw new Error('云端已变化，请重试');state[key]={version:result.version,hash:digest(this.payload(local))};}
+  if(choice==='remote'){await this.apply(key,remote.payload);state[key]={version:remote.version,hash:remote.hash,payload:remote.payload};}
+  else{const result=await this.upload(key,local,remote.version);if(!result.ok)throw new Error('云端已变化，请重试');state[key]={version:result.version,hash:digest(this.payload(local)),payload:this.payload(local)};}
   delete conflicts[key];await atomic(path.join(this.store.root,'.cloud-state.json'),JSON.stringify(state));await atomic(path.join(this.store.root,'.cloud-conflicts.json'),JSON.stringify(conflicts));
  }
 }

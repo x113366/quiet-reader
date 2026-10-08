@@ -2,6 +2,7 @@ const $=id=>document.getElementById(id);
 const viewport=$('viewport'),canvas=$('page'),ctx=canvas.getContext('2d');
 const worker=new Worker('layout-worker.js');
 const searchWorker=new Worker('search-worker.js');
+let lastReadingAnchor=null,cloudTransfer=false,cloudJob=null;
 let searchRequest=0,matches=[],matchIndex=-1,highlight=null;
 let book=null,layout=null,widths=new Map(),logicalY=0,signature='',epoch=0,snapshots={};
 let request=0,working=false,pendingAnchor=null,saveTimer,resizeTimer,noticeTimer,programmatic=-1,frame=0,saveChain=Promise.resolve();
@@ -66,15 +67,19 @@ worker.onmessage=({data})=>{
 worker.onerror=e=>{working=false;readyResolve?.();readyResolve=null;report(new Error('排版失败：'+e.message));};
 function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(report),Math.max(0,Math.min(500,3000-(Date.now()-lastSaved))));}
 async function save(){
-  clearTimeout(saveTimer);if(!book)return;
+  clearTimeout(saveTimer);if(!book)return;if(cloudTransfer)await cloudJob;
   await readyPromise;remember();
-  const readCount=currentReadCount();book.counts={total:charPrefix.at(-1)||0,read:readCount};
-  const payload={id:book.id,readCount,settings:{...book.settings},view:{...view},progress:{anchor:capture(),epoch,snapshots:structuredClone(snapshots)}};
+  const readCount=currentReadCount();
+  const currentAnchor=capture(),moved=JSON.stringify(currentAnchor)!==JSON.stringify(lastReadingAnchor);
+  const progress=moved?{anchor:currentAnchor,epoch,snapshots:structuredClone(snapshots)}:book.progress;
+  const payload={id:book.id,readCount:moved?readCount:book.counts?.read,settings:{...book.settings},view:{...view},progress};
+  book.progress=progress;lastReadingAnchor=currentAnchor;book.counts={total:charPrefix.at(-1)||0,read:payload.readCount||0};
   saveChain=saveChain.catch(()=>{}).then(()=>window.reader.save(payload));await saveChain;lastSaved=Date.now();
 }
 async function openBook(id,encoding){
   if(opening)return;opening=true;
   try{
+    if(cloudUser&&screenMode==='library')await synchronizeCloud(false);
     await flushReading();await save();notice('正在打开…',true);
     const next=await window.reader.open(id,encoding);
     textSelection=null;book=next;charPrefix=[0];for(const p of book.paragraphs)charPrefix.push(charPrefix.at(-1)+charCount(p.text));if(!next.progress&&uiStyle==='light'){book.settings.background='#fbf8f1';book.settings.color='#243c35';}layout=null;signature='';logicalY=0;snapshots=next.progress?.snapshots||{};epoch=next.progress?.epoch||0;
@@ -84,7 +89,7 @@ async function openBook(id,encoding){
     searchRequest++;matches=[];matchIndex=-1;highlight=null;$('matches').replaceChildren();$('search-count').textContent='输入关键词开始查找';$('search-button').disabled=false;$('search').close();searchWorker.postMessage({paragraphs:book.paragraphs});
     $('welcome').hidden=true;$('book-title').textContent=book.title;document.title=book.title+' · 静读';$('settings-button').disabled=false;
     $('cloud-button').disabled=false;$('settings').close();syncSettings();reflow(next.progress?.anchor||null,true);
-    await readyPromise;$('status').hidden=true;if(next.warning)notice(next.warning,true);viewport.focus();
+    await readyPromise;lastReadingAnchor=capture();$('status').hidden=true;if(next.warning)notice(next.warning,true);viewport.focus();
   }finally{opening=false;}
 }
 viewport.addEventListener('scroll',()=>{
@@ -151,7 +156,7 @@ searchWorker.onmessage=({data})=>{if(data.request!==searchRequest)return;if(data
   matches.forEach((match,index)=>{const button=document.createElement('button');button.className='match';button.textContent=`${index+1} · ${match.excerpt}`;button.onclick=()=>jumpMatch(index,true);$('matches').append(button);});};
 function jumpMatch(index,close=false){if(!matches.length||working)return;matchIndex=(index+matches.length)%matches.length;highlight=matches[matchIndex];position(locate({paragraph:highlight.paragraph,offset:highlight.start,dy:layout.lh*2}));epoch++;snapshots={};remember();scheduleSave();$('matches').querySelectorAll('button').forEach((button,i)=>button.setAttribute('aria-current',String(i===matchIndex)));$('search-count').textContent=`第 ${matchIndex+1} / ${matches.length}${matches.length===200?'（前200处）':''} 处`;if(close){$('search').close();viewport.focus();}}
 $('previous-match').onclick=()=>jumpMatch(matchIndex-1,true);$('next-match').onclick=()=>jumpMatch(matchIndex+1,true);
-window.reader.onClose(async()=>{try{if(resizeTimer){clearTimeout(resizeTimer);if(book&&layout&&signature!==key())reflow(capture());}await flushReading();await save();await window.reader.finishClose();}catch(e){report(new Error('保存失败，窗口已保留：'+e.message));}});
+window.reader.onClose(async()=>{try{if(resizeTimer){clearTimeout(resizeTimer);if(book&&layout&&signature!==key())reflow(capture());}await flushReading();await save();if(cloudUser)await synchronizeCloud(false);await window.reader.finishClose();}catch(e){report(new Error('保存失败，窗口已保留：'+e.message));}});
 window.addEventListener('blur',()=>save().catch(report));
 function updateProgress(){if(!layout)return;const maximum=Math.max(0,layout.total-viewport.clientHeight);const value=maximum?logicalY/maximum*10000:0;
   for(const id of ['reading-progress','navigation-progress'])$(id).value=value;
@@ -227,7 +232,7 @@ function readingActive(){return Boolean(book&&layout&&!working&&!opening&&screen
 function tickReading(){const now=performance.now(),delta=now-lastTick;lastTick=now;
   const active=readingActive();if(active&&wasReading&&delta>0&&delta<2500){timePending+=delta;timeBook=book.id;}wasReading=active;
 }
-function flushReading(){tickReading();const ms=timePending,id=timeBook;if(!ms||!id)return timeChain;
+function flushReading(){tickReading();if(cloudTransfer)return timeChain;const ms=timePending,id=timeBook;if(!ms||!id)return timeChain;
   timePending=0;timeChain=timeChain.then(()=>window.reader.readingTime({id,ms})).catch(e=>{report(new Error('阅读时长保存失败：'+e.message));});return timeChain;
 }
 setInterval(tickReading,1000);setInterval(flushReading,5000);
@@ -334,8 +339,8 @@ $('account-button').onclick=async()=>{await flushReading();await save();await re
 function resetReaderForCloud(){cloudAccountEpoch++;sendStudio({type:'reset-studio'});book=null;layout=null;charPrefix=[];signature='';snapshots={};logicalY=0;textSelection=null;screenMode='library';view.pure=false;setScreen();searchWorker.postMessage({paragraphs:[]});}
 async function refreshCloudData(){resetReaderForCloud();const p=await window.reader.preferences();applyStyle(p.uiStyle||'dark');await loadThemes();if(p.studio)sendStudio({type:'restore-draft',state:p.studio});await showLibrary();}
 async function synchronizeCloud(manual=false){if(cloudWorking)return;cloudWorking=true;const hadDialog=$('cloud-account').open;$('sync-now').disabled=true;try{
- await flushReading();await save();$('cloud-account-status').textContent='正在同步…';const result=await window.reader.cloudSync();
- if(result.downloaded)await refreshCloudData();await refreshCloud();$('cloud-account-status').textContent=`同步完成：上传 ${result.uploaded} 项，下载 ${result.downloaded} 项${result.conflicts.length?'，有 '+result.conflicts.length+' 项冲突':''}`;
+ await flushReading();await save();$('cloud-account-status').textContent='正在同步…';cloudTransfer=true;let result;try{result=await (cloudJob=window.reader.cloudSync(screenMode==='reading'));}finally{cloudTransfer=false;cloudJob=null;}
+ if(result.downloaded&&screenMode!=='reading')await refreshCloudData();await refreshCloud();$('cloud-account-status').textContent=`同步完成：上传 ${result.uploaded} 项，下载 ${result.downloaded} 项${result.conflicts.length?'，有 '+result.conflicts.length+' 项冲突':''}`;
  const comparisons=result.conflicts.length?await window.reader.cloudConflicts():[];
  $('cloud-conflicts').replaceChildren();for(const key of result.conflicts){const row=document.createElement('div');row.className='cloud-conflict';const label=document.createElement('p');label.textContent=key;row.append(label);const comparison=comparisons.find(c=>c.key===key);if(comparison){const details=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');summary.textContent='查看本机与云端版本';pre.textContent='本机：\n'+JSON.stringify(comparison.local,null,2)+'\n云端：\n'+JSON.stringify(comparison.remote,null,2);details.append(summary,pre);row.append(details);}for(const [text,choice]of [['保留本机','local'],['采用云端','remote']]){const button=document.createElement('button');button.textContent=text;button.onclick=async()=>{button.disabled=true;try{await window.reader.cloudResolve(key,choice);await refreshCloudData();await synchronizeCloud(true);}catch(e){$('cloud-account-status').textContent=e.message;}finally{button.disabled=false;}};row.append(button);}$('cloud-conflicts').append(row);}
  if((manual||hadDialog||result.conflicts.length)&&!$('cloud-account').open)$('cloud-account').showModal();
@@ -343,6 +348,7 @@ async function synchronizeCloud(manual=false){if(cloudWorking)return;cloudWorkin
 $('cloud-login-form').onsubmit=async e=>{e.preventDefault();$('cloud-login-submit').disabled=true;try{await flushReading();await save();await window.reader.cloudLogin({username:$('cloud-username').value,password:$('cloud-password').value,register:$('cloud-register').checked,importLocal:$('cloud-import-local').checked});$('cloud-password').value='';await refreshCloudData();await refreshCloud();await synchronizeCloud(true);}catch(error){$('cloud-account-status').textContent=error.message;}finally{$('cloud-login-submit').disabled=false;}};
 $('sync-now').onclick=()=>synchronizeCloud(true);
 $('cloud-logout').onclick=async()=>{try{await flushReading();await save();await window.reader.cloudLogout();await refreshCloudData();await refreshCloud();$('cloud-conflicts').replaceChildren();$('cloud-account').showModal();}catch(e){report(e);}};
-setInterval(()=>{if(cloudUser&&screenMode==='library'&&!document.querySelector('dialog[open]')&&!opening)synchronizeCloud(false);},60000);
-window.addEventListener('online',()=>{if(cloudUser&&screenMode==='library')synchronizeCloud(false);});
-refreshCloud().catch(report);
+setInterval(()=>{if(cloudUser&&!document.querySelector('dialog[open]')&&!opening)synchronizeCloud(false);},60000);
+window.addEventListener('online',()=>{if(cloudUser)synchronizeCloud(false);});
+window.addEventListener('blur',()=>{if(cloudUser&&!opening)synchronizeCloud(false);});
+refreshCloud().then(()=>{if(cloudUser)synchronizeCloud(false);}).catch(report);
