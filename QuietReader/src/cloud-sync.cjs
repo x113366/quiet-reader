@@ -1,6 +1,6 @@
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
 const config=require('./cloud-config.json');
-const {mergeReading,position,equal}=require('./reading-merge.cjs');
+const {mergeReading,syncReading,position,equal}=require('./reading-merge.cjs');
 const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
 function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().filter(k=>value[k]!==undefined).map(k=>[k,stable(value[k])]));return value;}
 const digest=value=>hash(JSON.stringify(stable(value)));
@@ -23,7 +23,7 @@ class CloudSync{
  call(name,args={}){return this.request(name,{p_token:this.session.token,...args});}
  async entries(){
   const entries=new Map(),books=await this.store.list();
-  for(const b of books){const base={id:b.id,title:b.title,encoding:b.encoding,size:b.size,cleaning:b.cleaning};entries.set(`book/${b.id}/base`,base);entries.set(`book/${b.id}/reading`,{settings:b.settings,progress:b.progress,window:b.window,view:b.view,counts:b.counts});if(b.review)entries.set(`book/${b.id}/review`,b.review);
+  for(const b of books){const base={id:b.id,title:b.title,encoding:b.encoding,size:b.size,cleaning:b.cleaning};entries.set(`book/${b.id}/base`,base);entries.set(`book/${b.id}/reading`,{settings:b.settings,progress:b.progress,window:b.window,view:b.view,counts:b.counts,devices:b.devices});if(b.review)entries.set(`book/${b.id}/review`,b.review);
    for(const relative of [`books/${b.id}.txt`,`books/${b.id}.original.txt`,...['source.txt','analysis.json','analysis_report.txt','keywords_for_wordcloud.txt'].map(f=>`analysis/${b.id}/${f}`)]){
     let data;try{data=await fs.readFile(path.join(this.store.root,relative));}catch(e){if(e.code==='ENOENT')continue;throw e;}
     entries.set('asset/'+relative,{hash:hash(data),size:data.length,parts:Math.ceil(data.length/393216),_bytes:data});
@@ -52,7 +52,7 @@ class CloudSync{
   if(match){const [,id,part]=match;let book=await this.store.read(id);if(!book)book={id,settings:require('./core.cjs').defaults,window:{width:960,height:780},progress:null};
    if(part==='base'){if(payload.id!==id||typeof payload.title!=='string'||!['utf-8','gb18030'].includes(payload.encoding))throw new Error('无效书籍信息');for(const k of ['title','encoding','size','cleaning'])if(payload[k]!==undefined)book[k]=payload[k];}
    else if(part==='review')book.review={...require('./book-info.cjs').review(payload),updated:payload.updated};
-   else {for(const k of ['settings','progress','window','view','counts'])if(payload[k]!==undefined)book[k]=payload[k];book.settings=require('./core.cjs').settings(book.settings);}
+   else {for(const k of ['settings','progress','window','view','counts','devices'])if(payload[k]!==undefined)book[k]=payload[k];book.settings=require('./core.cjs').settings(book.settings);}
    book.updated=Date.now();await this.store.writeNow(book);return;
   }
   const p=await this.store.preferences();
@@ -69,6 +69,14 @@ class CloudSync{
   let uploaded=0,downloaded=0;
   for(const key of [...new Set([...local.keys(),...remote.keys()])].sort()){
    const value=local.get(key),remoteRow=remote.get(key),base=state[key];const localHash=value===undefined?null:digest(this.payload(value));
+   if(remoteRow&&localHash===remoteRow.hash&&(!value?.progress||equal(value.devices?.[this.deviceId]?.progress,value.progress))){state[key]={version:remoteRow.version,hash:localHash,payload:this.payload(value)};continue;}
+   if(key.endsWith('/reading')&&(value||remoteRow)){
+    const result=await syncReading({key,local:value,base:base?.payload,device:this.deviceId,call:(n,a)=>this.call(n,a),digest});
+    const applied=key===activeReadingKey&&value?{...result.payload,progress:value.progress,counts:value.counts,settings:value.settings}:result.payload;
+    await this.apply(key,applied);state[key]={version:result.version,hash:result.hash,payload:result.payload};
+    if(result.uploaded)uploaded++;if(!equal(applied,value))downloaded++;
+    await atomic(stateFile,JSON.stringify(state));continue;
+   }
    if(remoteRow&&localHash===remoteRow.hash){state[key]={version:remoteRow.version,hash:localHash,payload:this.payload(value)};continue;}
    const localChanged=value!==undefined&&(!base||base.hash!==localHash),remoteChanged=!!remoteRow&&(!base||base.version!==remoteRow.version);
    if(localChanged&&remoteChanged){const other=await this.call('reader_get',{p_key:key});

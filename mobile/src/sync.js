@@ -97,6 +97,13 @@ export async function synchronize(account, state, call, checkpoint, activeReadin
     const local = state.entries[key],
       row = remote.get(key);
     const localHash = local ? await digest(local.payload) : null;
+    if(row&&localHash===row.hash&&(!local.payload.progress||readingMerge.equal(local.payload.devices?.[state.device]?.progress,local.payload.progress))){Object.assign(local,{version:row.version,baseHash:row.hash,basePayload:structuredClone(local.payload)});delete state.conflicts[key];await checkpoint();continue;}
+    if(key.endsWith('/reading')&&(local||row)){
+      const result=await readingMerge.syncReading({key,local:local?.payload,base:local?.basePayload,device:state.device,call,digest});
+      const applied=key===activeReadingKey&&local?{...result.payload,progress:local.payload.progress,counts:local.payload.counts,settings:local.payload.settings}:result.payload;
+      state.entries[key]={payload:applied,version:result.version,baseHash:result.hash,basePayload:structuredClone(result.payload)};
+      delete state.conflicts[key];await checkpoint();continue;
+    }
     if (row && localHash === row.hash) {
       Object.assign(local, { version: row.version, baseHash: row.hash, basePayload: structuredClone(local.payload) });
       delete state.conflicts[key];

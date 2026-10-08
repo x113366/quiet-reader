@@ -73,7 +73,7 @@ for (const [name, engine] of [
     await page.locator("#password").fill("test-password");
     await page.getByRole("button", { name: "登录", exact: true }).click();
     await expect(page.locator("#account-tab")).toHaveText(user);
-    await expect(page.locator("#toast")).toContainText("已与云端同步");
+    await expect(page.locator("#toast")).not.toContainText(/同步/);
   }
   await login("alice");
   const text =

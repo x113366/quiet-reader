@@ -71,7 +71,7 @@ async function save(){
   await readyPromise;remember();
   const readCount=currentReadCount();
   const currentAnchor=capture(),moved=JSON.stringify(currentAnchor)!==JSON.stringify(lastReadingAnchor);
-  const progress=moved?{anchor:currentAnchor,epoch,snapshots:structuredClone(snapshots)}:book.progress;
+  const progress=moved?{anchor:currentAnchor,updatedAt:Date.now(),epoch,snapshots:structuredClone(snapshots)}:book.progress;
   const payload={id:book.id,readCount:moved?readCount:book.counts?.read,settings:{...book.settings},view:{...view},progress};
   book.progress=progress;lastReadingAnchor=currentAnchor;book.counts={total:charPrefix.at(-1)||0,read:payload.readCount||0};
   saveChain=saveChain.catch(()=>{}).then(()=>window.reader.save(payload));await saveChain;lastSaved=Date.now();
@@ -79,7 +79,7 @@ async function save(){
 async function openBook(id,encoding){
   if(opening)return;opening=true;
   try{
-    if(cloudUser&&screenMode==='library')await synchronizeCloud(false);
+    if(cloudUser&&screenMode==='library'&&(cloudRun||Date.now()-lastAutoSync>5000))await synchronizeCloud(false);
     await flushReading();await save();notice('正在打开…',true);
     const next=await window.reader.open(id,encoding);
     textSelection=null;book=next;charPrefix=[0];for(const p of book.paragraphs)charPrefix.push(charPrefix.at(-1)+charCount(p.text));if(!next.progress&&uiStyle==='light'){book.settings.background='#fbf8f1';book.settings.color='#243c35';}layout=null;signature='';logicalY=0;snapshots=next.progress?.snapshots||{};epoch=next.progress?.epoch||0;
@@ -108,7 +108,7 @@ new ResizeObserver(()=>{
   if(!working)remember();
   resizeTimer=setTimeout(()=>reflow(anchor),110);
 }).observe(viewport);
-async function showLibrary(){await flushReading();await save();const books=await window.reader.library();$('books').replaceChildren();
+async function showLibrary(){await flushReading();await save();screenMode='library';if(typeof cloudUser!=='undefined'&&cloudUser&&!cloudWorking)await synchronizeCloud(false,true);const books=await window.reader.library();$('books').replaceChildren();
   if(!books.length){const p=document.createElement('p');p.className='hint';p.textContent='书库还是空的。选择「导入 TXT」开始。';$('books').append(p);}
   for(const item of books){
     const card=document.createElement('article');card.className='shelf-card';
@@ -124,7 +124,7 @@ async function showLibrary(){await flushReading();await save();const books=await
     for(const [label,action] of [['书评',()=>showReview(item)],['导出 TXT',()=>exportBook(item.id)]]){const control=document.createElement('button');control.textContent=label;control.onclick=action;actions.append(control);}
     card.append(button,summary,actions);$('books').append(card);
   }
-  screenMode='library';setScreen();$('book-count').textContent=books.length+' 本';
+  book=null;layout=null;screenMode='library';setScreen();$('book-count').textContent=books.length+' 本';
 }
 async function imported(results){const errors=results.filter(r=>r.error).map(r=>r.error);const ok=results.filter(r=>r.id);if(ok.length===1)await openBook(ok[0].id);else if(ok.length)await showLibrary();if(errors.length)notice(errors.join('；'),true);}
 async function pick(){$('file-input').click();}
@@ -333,22 +333,26 @@ $('review-button').onclick=()=>{if(book)showReview(book);};
 $('review-save').onclick=async()=>{const id=reviewBookId;$('review-save').disabled=true;try{const result=await window.reader.saveReview(id,{rating:Number($('review-rating').value),tags:$('review-tags').value.split(/[,，\n]+/).map(t=>t.trim()).filter(Boolean),text:$('review-text').value});if(book?.id===id)book.review=result.review;$('book-review').close();if(screenMode==='library')await showLibrary();notice('书评已保存');}catch(e){$('review-status').textContent=e.message;}finally{$('review-save').disabled=false;}};
 async function exportBook(id){try{if(await window.reader.exportTxt(id))notice('TXT 已导出（UTF-8，当前阅读版本）');}catch(e){report(e);}}
 $('export-button').onclick=()=>{if(book)exportBook(book.id);};
-let cloudWorking=false,cloudUser=null;
+let cloudWorking=false,cloudUser=null,lastAutoSync=0,cloudRun=null;
 async function refreshCloud(){const status=await window.reader.cloudStatus();cloudUser=status.user;$('account-button').textContent=status.user?'云同步':'账号';$('cloud-login-form').hidden=!!status.user;$('cloud-signed-in').hidden=!status.user;$('cloud-account-status').textContent=status.error||(status.user?`已登录：${status.user.username}${status.last?' · 上次同步 '+new Date(status.last.at).toLocaleTimeString():''}`:'使用 quiz-app 的用户名和密码登录。');return status;}
 $('account-button').onclick=async()=>{await flushReading();await save();await refreshCloud();$('cloud-account').showModal();};
 function resetReaderForCloud(){cloudAccountEpoch++;sendStudio({type:'reset-studio'});book=null;layout=null;charPrefix=[];signature='';snapshots={};logicalY=0;textSelection=null;screenMode='library';view.pure=false;setScreen();searchWorker.postMessage({paragraphs:[]});}
 async function refreshCloudData(){resetReaderForCloud();const p=await window.reader.preferences();applyStyle(p.uiStyle||'dark');await loadThemes();if(p.studio)sendStudio({type:'restore-draft',state:p.studio});await showLibrary();}
-async function synchronizeCloud(manual=false){if(cloudWorking)return;cloudWorking=true;const hadDialog=$('cloud-account').open;$('sync-now').disabled=true;try{
+function synchronizeCloud(manual=false,shelfEntry=false){
+ if(cloudRun)return shelfEntry?cloudRun.then(()=>synchronizeCloud(manual,true)):cloudRun;
+ cloudRun=performCloudSync(manual,shelfEntry).finally(()=>{cloudRun=null;});return cloudRun;
+}
+async function performCloudSync(manual=false,shelfEntry=false){if(cloudWorking)return;cloudWorking=true;lastAutoSync=Date.now();const hadDialog=$('cloud-account').open;$('sync-now').disabled=true;try{
  await flushReading();await save();$('cloud-account-status').textContent='正在同步…';cloudTransfer=true;let result;try{result=await (cloudJob=window.reader.cloudSync(screenMode==='reading'));}finally{cloudTransfer=false;cloudJob=null;}
- if(result.downloaded&&screenMode!=='reading')await refreshCloudData();await refreshCloud();$('cloud-account-status').textContent=`同步完成：上传 ${result.uploaded} 项，下载 ${result.downloaded} 项${result.conflicts.length?'，有 '+result.conflicts.length+' 项冲突':''}`;
+ if(result.downloaded&&screenMode==='library'&&!shelfEntry)await refreshCloudData();await refreshCloud();$('cloud-account-status').textContent=`同步完成：上传 ${result.uploaded} 项，下载 ${result.downloaded} 项${result.conflicts.length?'，有 '+result.conflicts.length+' 项冲突':''}`;
  const comparisons=result.conflicts.length?await window.reader.cloudConflicts():[];
  $('cloud-conflicts').replaceChildren();for(const key of result.conflicts){const row=document.createElement('div');row.className='cloud-conflict';const label=document.createElement('p');label.textContent=key;row.append(label);const comparison=comparisons.find(c=>c.key===key);if(comparison){const details=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');summary.textContent='查看本机与云端版本';pre.textContent='本机：\n'+JSON.stringify(comparison.local,null,2)+'\n云端：\n'+JSON.stringify(comparison.remote,null,2);details.append(summary,pre);row.append(details);}for(const [text,choice]of [['保留本机','local'],['采用云端','remote']]){const button=document.createElement('button');button.textContent=text;button.onclick=async()=>{button.disabled=true;try{await window.reader.cloudResolve(key,choice);await refreshCloudData();await synchronizeCloud(true);}catch(e){$('cloud-account-status').textContent=e.message;}finally{button.disabled=false;}};row.append(button);}$('cloud-conflicts').append(row);}
- if((manual||hadDialog||result.conflicts.length)&&!$('cloud-account').open)$('cloud-account').showModal();
+ if(manual&&!$('cloud-account').open)$('cloud-account').showModal();
  }catch(e){$('cloud-account-status').textContent=e.message;if(manual)report(e);}finally{cloudWorking=false;$('sync-now').disabled=false;}}
 $('cloud-login-form').onsubmit=async e=>{e.preventDefault();$('cloud-login-submit').disabled=true;try{await flushReading();await save();await window.reader.cloudLogin({username:$('cloud-username').value,password:$('cloud-password').value,register:$('cloud-register').checked,importLocal:$('cloud-import-local').checked});$('cloud-password').value='';await refreshCloudData();await refreshCloud();await synchronizeCloud(true);}catch(error){$('cloud-account-status').textContent=error.message;}finally{$('cloud-login-submit').disabled=false;}};
 $('sync-now').onclick=()=>synchronizeCloud(true);
 $('cloud-logout').onclick=async()=>{try{await flushReading();await save();await window.reader.cloudLogout();await refreshCloudData();await refreshCloud();$('cloud-conflicts').replaceChildren();$('cloud-account').showModal();}catch(e){report(e);}};
-setInterval(()=>{if(cloudUser&&!document.querySelector('dialog[open]')&&!opening)synchronizeCloud(false);},60000);
+setInterval(()=>{if(cloudUser&&!document.querySelector('dialog[open]')&&!opening)synchronizeCloud(false);},300000);
 window.addEventListener('online',()=>{if(cloudUser)synchronizeCloud(false);});
-window.addEventListener('blur',()=>{if(cloudUser&&!opening)synchronizeCloud(false);});
+window.addEventListener('blur',()=>{if(cloudUser&&!opening&&Date.now()-lastAutoSync>30000)synchronizeCloud(false);});
 refreshCloud().then(()=>{if(cloudUser)synchronizeCloud(false);}).catch(report);

@@ -160,6 +160,7 @@ app.whenReady().then(async()=>{
     if(JSON.stringify(payload.progress).length > 100000) throw new Error('进度数据过大');
     const bounds=win.isMinimized()?win.getNormalBounds():win.getBounds();
     await store.updateBook(payload.id,book=>{
+    if(payload.progress){const moved=!require('./reading-merge.cjs').equal(require('./reading-merge.cjs').position({progress:payload.progress}),require('./reading-merge.cjs').position(book));payload.progress={...payload.progress,updatedAt:moved?(payload.progress.updatedAt||Date.now()):book.progress?.updatedAt,deviceId:moved?accounts.device.id:book.progress?.deviceId};}
     if(Number.isFinite(payload.readCount)&&book.counts)book.counts.read=Math.max(0,Math.min(book.counts.total,Math.floor(payload.readCount)));
     Object.assign(book,{settings:settings(payload.settings),progress:payload.progress,window:{width:bounds.width,height:bounds.height},view:{pure:Boolean(payload.view?.pure),alwaysOnTop:Boolean(payload.view?.alwaysOnTop)},updated:Date.now()});
     });return true;

@@ -61,29 +61,31 @@ test("desktop digest and paragraph compatibility", async () => {
   const text = "\u3000第一章\r\n\r\n　正文 😀\n\n另一个段落";
   assert.deepEqual(paragraphs(text), core.paragraphs(text));
 });
-test("concurrent progress conflicts, guarded resolution, retained unknown fields", async () => {
+test("latest read time wins including backward reading, device snapshots retained", async () => {
   const s = server(),
     a = empty(),
     b = empty(),
     key = "book/" + "a".repeat(64) + "/reading";
   a.entries[key] = {
     payload: {
-      progress: { anchor: { paragraph: 1, offset: 0 } },
+      progress: { anchor: { paragraph: 1, offset: 0 }, updatedAt:100,deviceId:a.device },
       desktopFuture: { keep: true },
     },
   };
   await synchronize("a", a, s.call, async () => {});
   await synchronize("b", b, s.call, async () => {});
-  a.entries[key].payload.progress.anchor.paragraph = 8;
-  b.entries[key].payload.progress.anchor.paragraph = 3;
+  a.entries[key].payload.progress={anchor:{paragraph:8,offset:0},updatedAt:200,deviceId:a.device};
+  b.entries[key].payload.progress={anchor:{paragraph:3,offset:0},updatedAt:300,deviceId:b.device};
   await synchronize("a", a, s.call, async () => {});
   await synchronize("b", b, s.call, async () => {});
-  assert.equal(Object.keys(b.conflicts).length, 1);
-  assert.equal(s.rows.get(key).payload.progress.anchor.paragraph, 8);
-  await resolve("b", b, key, "remote", s.call, async () => {});
-  assert.equal(b.entries[key].payload.progress.anchor.paragraph, 8);
-  assert.equal(b.entries[key].payload.desktopFuture.keep, true);
-  assert.equal(b.history.length, 1);
+  assert.equal(Object.keys(b.conflicts).length,0);
+  assert.equal(s.rows.get(key).payload.progress.anchor.paragraph,3);
+  const records=s.rows.get(key).payload.devices;
+  assert.equal(records[a.device].progress.anchor.paragraph,8);
+  assert.equal(records[b.device].progress.anchor.paragraph,3);
+  await synchronize('a',a,s.call,async()=>{});
+  assert.equal(a.entries[key].payload.progress.anchor.paragraph,3);
+  assert.equal(a.entries[key].payload.desktopFuture.keep,true);
   s.rows.set("prefs/studio", {
     version: 1,
     hash: await digest({ future: 42 }),
@@ -137,17 +139,17 @@ test("offline edits checkpoint on reconnect; account and byte isolation; chunk i
   );
 });
 
-test('desktop and web exchange progress, merge layout edits, defer active remote jumps and preserve real conflicts', async () => {
+test('desktop and web exchange progress, merge layout edits, defer active remote jumps and resolve by time', async () => {
   const fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');
   const {Store}=require('../../QuietReader/src/store.cjs');
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'reader-progress-'));
   try{
     const store=new Store(root);await store.init();
     const id='a'.repeat(64),key=`book/${id}/reading`,remote=server(),web=empty();
-    await store.write({id,title:'同步',encoding:'utf-8',settings:require('../../QuietReader/src/core.cjs').defaults,window:{width:960,height:780},progress:{anchor:{paragraph:1,offset:0}},counts:{read:10,total:100}});
+    await store.write({id,title:'同步',encoding:'utf-8',settings:require('../../QuietReader/src/core.cjs').defaults,window:{width:960,height:780},progress:{anchor:{paragraph:1,offset:0},updatedAt:100,deviceId:"desktop"},counts:{read:10,total:100}});
     const desktopSync=new desktop.CloudSync(store,{token:'test'},'desktop',remote.call);
     await desktopSync.run();await synchronize('test',web,remote.call,async()=>{});
-    web.entries[key].payload.progress={anchor:{paragraph:5,offset:4},epoch:2,snapshots:{}};
+    web.entries[key].payload.progress={anchor:{paragraph:5,offset:4},updatedAt:200,deviceId:web.device,epoch:2,snapshots:{}};
     web.entries[key].payload.counts.read=55;
     await synchronize('test',web,remote.call,async()=>{});
     await store.updateBook(id,b=>{b.window.width=1000;});
@@ -157,17 +159,17 @@ test('desktop and web exchange progress, merge layout edits, defer active remote
     assert.equal((await store.read(id)).progress.anchor.paragraph,5);
     assert.equal((await store.read(id)).counts.read,55);
     await synchronize('test',web,remote.call,async()=>{});
-    await store.updateBook(id,b=>{b.progress={anchor:{paragraph:8,offset:2}};b.counts.read=80;});
+    await store.updateBook(id,b=>{b.progress={anchor:{paragraph:8,offset:2},updatedAt:300,deviceId:"desktop"};b.counts.read=80;});
     await desktopSync.run();
     web.entries[key].payload.settings.fontSize=24;
     assert.equal(await synchronize('test',web,remote.call,async()=>{}),0);
     assert.equal(web.entries[key].payload.progress.anchor.paragraph,8);
     assert.equal(web.entries[key].payload.settings.fontSize,24);
     await desktopSync.run();
-    await store.updateBook(id,b=>{b.progress={anchor:{paragraph:3,offset:0}};});
-    web.entries[key].payload.progress={anchor:{paragraph:9,offset:0}};
+    await store.updateBook(id,b=>{b.progress={anchor:{paragraph:3,offset:0},updatedAt:500,deviceId:"desktop"};});
+    web.entries[key].payload.progress={anchor:{paragraph:9,offset:0},updatedAt:400,deviceId:web.device};
     await desktopSync.run();
-    assert.equal(await synchronize('test',web,remote.call,async()=>{}),1);
-    assert.equal(web.entries[key].payload.progress.anchor.paragraph,9);
+    assert.equal(await synchronize('test',web,remote.call,async()=>{}),0);
+    assert.equal(web.entries[key].payload.progress.anchor.paragraph,3);
   }finally{await fs.rm(root,{recursive:true,force:true});}
 });

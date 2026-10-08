@@ -1,4 +1,4 @@
-let savedScreenAnchor=null,pageLeaving=false;
+let savedScreenAnchor=null,pageLeaving=false,lastAutoSync=0;
 import {
   paragraphs,
   count,
@@ -140,7 +140,7 @@ function top(title, subtitle) {
   $("stats-tab").onclick = () => task(showStats);
   $("account-tab").onclick = () => task(accountPanel);
 }
-async function library() {
+async function library(syncOnEntry=true) {
   pauseTime();
   book = null;
   screen = "library";
@@ -152,11 +152,7 @@ async function library() {
   $("import").onclick = () => task(importPanel);
   $("cache").onclick = () => task(cachePanel);
   $("sync").onclick = () => task(syncNow);
-  $("sync-state").textContent = session
-    ? state.lastSync
-      ? `上次同步 ${new Date(state.lastSync).toLocaleString()} · ${navigator.onLine ? "在线" : "离线"}`
-      : "已登录 · 尚未同步"
-    : "本机书架 · 登录后使用独立的账号书库";
+  $("sync-state").textContent = session ? "" : "本机书架 · 登录后使用独立的账号书库";
   const rows = Object.entries(state.entries).filter(([key]) =>
     /^book\/[a-f0-9]{64}\/base$/.test(key),
   );
@@ -182,9 +178,7 @@ async function library() {
     card.querySelector("button").onclick = () => task(() => openBook(id));
     $("shelf").append(card);
   }
-  const conflicts = Object.keys(state.conflicts).length;
-  if (conflicts)
-    $("sync-state").append(button(`${conflicts} 项同步冲突`, conflictsPanel));
+  if(syncOnEntry&&session&&navigator.onLine&&!busy)await syncNow();
 }
 async function bytesFor(key) {
   const entry = state.entries[key];
@@ -197,7 +191,7 @@ async function bytesFor(key) {
   return download(account, key, entry.payload, client(session));
 }
 async function openBook(id) {
-  if(session&&!book&&navigator.onLine){try{await syncNow();}catch(error){toast(error.message);}}
+  if(session&&!book&&navigator.onLine&&Date.now()-lastAutoSync>5000){try{await syncNow();}catch{}}
   const base = payload(keyFor(id, "base"));
   const bytes = await bytesFor(`asset/books/${id}.txt`);
   content = paragraphs(decode(bytes, base.encoding).text);
@@ -223,7 +217,6 @@ async function openBook(id) {
     task(async () => {
       await saveProgress();
       await library();
-      if (session) task(syncNow);
     });
   $("find").onclick = searchPanel;
   $("review").onclick = reviewPanel;
@@ -357,6 +350,7 @@ async function saveProgress() {
     progress: {
       ...old.progress,
       anchor: currentAnchor,
+      updatedAt:Date.now(),deviceId:state.device,
       epoch: (old.progress?.epoch || 0) + 1,
       snapshots: {},
     },
@@ -669,8 +663,7 @@ function importPanel() {
           closePanel();
           await library();
           toast("已保存正文及原文备份");
-          if (session) task(syncNow);
-        });
+            });
     },
   );
 }
@@ -821,7 +814,6 @@ async function accountPanel() {
             state = nextState;
             closePanel();
             await library();
-            await syncNow();
           } catch (err) {
             if ($("login-error")) $("login-error").textContent = err.message;
             else toast(err.message);
@@ -842,8 +834,8 @@ async function syncNow() {
   if (book) {
     await saveProgress();
   }
-  busy = true;
-  toast("正在同步…");
+  busy = true;lastAutoSync=Date.now();
+
   try {
     const conflicts = await synchronize(
       account,
@@ -852,12 +844,10 @@ async function syncNow() {
       persist,
       book ? keyFor(book.id, "reading") : null,
     );
-    if (!book) await library();
-    toast(
-      conflicts
-        ? `有 ${conflicts} 项冲突，请选择保留的版本`
-        : "已与云端同步，书籍可按需下载",
-    );
+    if (!book&&screen==="library") await library(false);
+
+  } catch(error) {
+    state.syncError=error.message;
   } finally {
     busy = false;
   }
@@ -976,12 +966,12 @@ document.addEventListener("visibilitychange", () => {
     pauseTime();
     active = false;
     task(saveProgress);
-    setTimeout(()=>{if(!pageLeaving&&session&&navigator.onLine)task(syncNow);},100);
+    setTimeout(()=>{if(!pageLeaving&&session&&navigator.onLine&&Date.now()-lastAutoSync>30000)task(syncNow);},100);
   } else {
     active = true;
     lastTick = performance.now();
     activity();
-    if (session) task(syncNow);
+    if (session&&Date.now()-lastAutoSync>30000) task(syncNow);
   }
 });
 window.addEventListener("pagehide", () => {
@@ -1000,7 +990,7 @@ window.addEventListener("online", () => {
 });
 setInterval(() => {
   if (session && !panel.open && navigator.onLine) task(syncNow);
-}, 60000);
+}, 300000);
 window.addEventListener("keydown", (e) => {
   activity();
   if (e.key === "Escape") {
@@ -1014,7 +1004,6 @@ window.addEventListener("keydown", (e) => {
   }
 });
 await library();
-if (session && navigator.onLine) task(syncNow);
 if ("serviceWorker" in navigator) {
   let reloadOnChange = !!navigator.serviceWorker.controller;
   navigator.serviceWorker
