@@ -1,4 +1,4 @@
-let savedScreenAnchor=null;
+let savedScreenAnchor=null,pageLeaving=false;
 import {
   paragraphs,
   count,
@@ -975,7 +975,8 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     pauseTime();
     active = false;
-    task(async()=>{await saveProgress();if(session&&navigator.onLine)await syncNow();});
+    task(saveProgress);
+    setTimeout(()=>{if(!pageLeaving&&session&&navigator.onLine)task(syncNow);},100);
   } else {
     active = true;
     lastTick = performance.now();
@@ -984,11 +985,13 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 window.addEventListener("pagehide", () => {
+  pageLeaving=true;
   pauseTime();
   active = false;
   task(saveProgress);
 });
 window.addEventListener("pageshow", () => {
+  pageLeaving=false;
   active = !document.hidden;
   lastTick = performance.now();
 });

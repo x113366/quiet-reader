@@ -7,6 +7,7 @@ for (const [name, engine] of [
   ["chromium", chromium],
   ["webkit", webkit],
 ]) {
+  if(process.env.TEST_BROWSER&&process.env.TEST_BROWSER!==name)continue;
   const browser = await engine.launch(),
     context = await browser.newContext({
       ...devices["iPhone 13"],
@@ -14,7 +15,7 @@ for (const [name, engine] of [
     }),
     page = await context.newPage(),
     errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", (e) => errors.push(e.stack||e.message));
   const users = {
       alice: {
         id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -27,6 +28,8 @@ for (const [name, engine] of [
     },
     remote = new Map();
   await context.route("**/rest/v1/rpc/**", async (route) => {
+    const cors={"access-control-allow-origin":"*","access-control-allow-headers":"apikey,content-type","access-control-allow-methods":"POST,OPTIONS"};
+    if(route.request().method()==='OPTIONS')return route.fulfill({status:204,headers:cors});
     const name = route.request().url().split("/").at(-1),
       a = route.request().postDataJSON();
     let result = null;
@@ -56,7 +59,7 @@ for (const [name, engine] of [
         }
       }
     }
-    await route.fulfill({ json: result });
+    await route.fulfill({ json: result, headers: cors });
   });
   await page.goto("http://127.0.0.1:4173");
   await expect(page.getByRole("heading", { name: "我的书架" })).toBeVisible();
