@@ -1,0 +1,24 @@
+const {_electron}=require('playwright'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path'),assert=require('node:assert/strict');
+const {Store}=require('../src/store.cjs'),{identity,defaults}=require('../src/core.cjs'),A=require('../src/reading-analytics.js');
+(async()=>{
+ const root=path.resolve(__dirname,'..'),data=await fs.mkdtemp(path.join(os.tmpdir(),'reader-footprints-'));let app;
+ try{
+  const store=new Store(data);await store.init();const bytes=Buffer.from(Array.from({length:120},(_,i)=>`第${i+1}段 林间的树影，映在安静的书页上。`).join('\n')),id=identity(bytes);
+  await fs.writeFile(store.file(id,'txt'),bytes);await store.write({id,title:'林间书页',encoding:'utf-8',size:bytes.length,settings:defaults,window:{width:960,height:780},progress:null,counts:{read:0,total:2000}});
+  const counter={},records={};for(let i=0;i<14;i++){const date=new Date();date.setDate(date.getDate()-i);const day=A.dayKey(date),ms=(i+1)*60000;counter[day]={[id]:ms};const sid=require('node:crypto').randomUUID();records[sid]={id:sid,bookId:id,platform:i%2?'mobile':'desktop',deviceId:'seed',startedAt:date.getTime()-ms,lastAt:date.getTime(),durationMs:ms,days:{[day]:ms},startRead:20,endRead:200,total:2000,paceChars:180,paceMs:ms};}counter._sessions=records;
+  await store.updatePreferences(p=>{p.days=Object.fromEntries(Object.entries(counter).filter(([k])=>k!=='_sessions'));p.dayCounters={seed:counter};});
+  const env={...process.env,QUIET_READER_DATA:data};delete env.ELECTRON_RUN_AS_NODE;
+  app=await _electron.launch({args:[root],env});const page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.locator('.book').click();await page.waitForFunction(()=>window.readerDiagnostics().id&&!window.readerDiagnostics().opening&&!window.readerDiagnostics().working);
+  assert.match(await page.locator('#hud-clock').textContent(),/^\d{2}:\d{2}$/);assert.match(await page.locator('#hud-progress').textContent(),/%/);assert.match(await page.locator('#hud-eta').textContent(),/约.*读完/);
+  assert.equal(await page.locator('#reading-hud').evaluate(n=>getComputedStyle(n).pointerEvents),'none');await fs.mkdir(path.join(root,'test-results'),{recursive:true});await page.screenshot({path:path.join(root,'test-results/footprint-reading.png')});
+  // Cumulative checkpoints are idempotent through the real desktop IPC path.
+  const sample={id:require('node:crypto').randomUUID(),bookId:id,platform:'desktop',startedAt:Date.now()-5000,lastAt:Date.now(),durationMs:5000,days:{[A.dayKey(new Date())]:5000},startRead:0,endRead:30,total:2000,paceChars:0,paceMs:0};
+  const before=await page.evaluate(async()=>Object.values((await window.reader.preferences()).days).reduce((a,d)=>a+Object.values(d).reduce((x,y)=>x+y,0),0));
+  await page.evaluate(async record=>{await window.reader.readingTime({id:record.bookId,ms:0,session:record});await window.reader.readingTime({id:record.bookId,ms:0,session:record});},sample);
+  const after=await page.evaluate(async()=>Object.values((await window.reader.preferences()).days).reduce((a,d)=>a+Object.values(d).reduce((x,y)=>x+y,0),0));assert.equal(after-before,5000);
+  await page.keyboard.press('Escape');await page.click('#stats-button');await page.waitForSelector('.footprint-calendar');assert.equal(await page.locator('.footprint-summary>div').count(),3);assert.equal(await page.locator('.footprint-bar').count(),14);await page.locator('.footprint-heading select').selectOption('30');assert.equal(await page.locator('.footprint-bar').count(),30);
+  await page.locator('.footprint-day').first().click();await page.locator('.footprint-rank').first().click();assert.ok(await page.locator('.footprint-timeline li').count()>=14);await page.screenshot({path:path.join(root,'test-results/footprints-dark.png')});
+  await page.click('#ui-style-button');await page.screenshot({path:path.join(root,'test-results/footprints-light.png')});assert.deepEqual(errors,[]);console.log('PASS desktop HUD, midnight-safe idempotent sessions, daily chart, calendar, rankings, timeline and both themes');
+ }finally{await app?.close();await fs.rm(data,{recursive:true,force:true});}
+})().catch(e=>{console.error(e);process.exitCode=1});

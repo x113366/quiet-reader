@@ -100,6 +100,9 @@ for (const [name, engine] of [
   await page.locator(".cover").click();
   await expect(page.locator("#reader-top")).toBeHidden();
   await expect(page.locator("#text")).toContainText("请收藏本站");
+  await expect(page.locator("#hud-clock")).toHaveText(/\d{2}:\d{2}/);
+  await expect(page.locator("#hud-progress")).toHaveText(/%/);
+  await expect(page.locator("#hud-eta")).toContainText("读完");
   await page.evaluate(() => {
     const p = document.querySelector("#text p:nth-child(2)"),
       r = document.createRange();
@@ -137,6 +140,15 @@ for (const [name, engine] of [
   await page.locator("#style").click();
   await expect(page.locator("body")).toHaveAttribute("data-ui", "light");
   await page.screenshot({ path: `test-results/${name}-light.png` });
+  await page.locator("#stats-tab").click();
+  await expect(page.getByRole("heading", {name:"每日时长",exact:true})).toBeVisible();
+  await expect(page.getByRole("heading", {name:"阅读日历",exact:true})).toBeVisible();
+  await expect(page.getByRole("heading", {name:"书籍时长排名",exact:true})).toBeVisible();
+  await page.setViewportSize({width:320,height:740});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:`test-results/${name}-footprints.png`,fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await page.locator("#library-tab").click();
   if (name === "chromium") await context.setOffline(true);
   await page.reload();
   await expect(page.locator(".book-card")).toHaveCount(1);

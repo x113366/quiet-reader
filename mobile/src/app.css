@@ -579,3 +579,7 @@ body[data-ui="light"] .cover-imprint {
   line-height: 1.8;
   border-radius: 6px;
 }
+
+#reader{top:calc(28px + env(safe-area-inset-top));bottom:calc(30px + env(safe-area-inset-bottom));background:var(--reading-bg)}
+#text{padding-top:28px;padding-bottom:40px}body[data-screen=reading]{background:var(--reading-paper,var(--bg))}
+#reader-hud{position:fixed;inset:0;z-index:1}#reader-hud[hidden]{display:none}

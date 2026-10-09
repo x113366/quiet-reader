@@ -1,3 +1,5 @@
+const Analytics=window.ReadingAnalytics;
+const sessionTracker=new Analytics.Tracker();let paceSessions=[],lastActivity=Date.now();
 const $=id=>document.getElementById(id);
 const viewport=$('viewport'),canvas=$('page'),ctx=canvas.getContext('2d');
 const worker=new Worker('layout-worker.js');
@@ -44,7 +46,7 @@ function draw(){
     visible.push(text);
   }
   $('accessible').textContent=visible.join('\n');
-  updateProgress();
+  updateProgress();updateReaderHUD();
 }
 function reflow(anchor=capture(),newBook=false){
   if(!book)return;
@@ -89,7 +91,7 @@ async function openBook(id,encoding){
     searchRequest++;matches=[];matchIndex=-1;highlight=null;$('matches').replaceChildren();$('search-count').textContent='输入关键词开始查找';$('search-button').disabled=false;$('search').close();searchWorker.postMessage({paragraphs:book.paragraphs});
     $('welcome').hidden=true;$('book-title').textContent=book.title;document.title=book.title+' · 静读';$('settings-button').disabled=false;
     $('cloud-button').disabled=false;$('settings').close();syncSettings();reflow(next.progress?.anchor||null,true);
-    await readyPromise;lastReadingAnchor=capture();$('status').hidden=true;if(next.warning)notice(next.warning,true);viewport.focus();
+    await readyPromise;paceSessions=Analytics.sessions((await window.reader.preferences()).dayCounters);sessionTracker.pause();lastActivity=Date.now();lastReadingAnchor=capture();updateReaderHUD();$('status').hidden=true;if(next.warning)notice(next.warning,true);viewport.focus();
   }finally{opening=false;}
 }
 viewport.addEventListener('scroll',()=>{
@@ -154,7 +156,7 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLower
 $('search-form').onsubmit=e=>{e.preventDefault();if(!book)return;$('search-count').textContent='正在查找…';searchWorker.postMessage({request:++searchRequest,query:$('query').value,mode:$('search-mode').value});};
 searchWorker.onmessage=({data})=>{if(data.request!==searchRequest)return;if(data.error){report(new Error(data.error));return;}matches=data.results;matchIndex=-1;$('matches').replaceChildren();$('search-count').textContent=matches.length===200?'显示前 200 处，请缩短范围或补充关键词':matches.length?`找到 ${matches.length} 处，点击结果跳转`:'没有找到匹配内容，可尝试模糊匹配';
   matches.forEach((match,index)=>{const button=document.createElement('button');button.className='match';button.textContent=`${index+1} · ${match.excerpt}`;button.onclick=()=>jumpMatch(index,true);$('matches').append(button);});};
-function jumpMatch(index,close=false){if(!matches.length||working)return;matchIndex=(index+matches.length)%matches.length;highlight=matches[matchIndex];position(locate({paragraph:highlight.paragraph,offset:highlight.start,dy:layout.lh*2}));epoch++;snapshots={};remember();scheduleSave();$('matches').querySelectorAll('button').forEach((button,i)=>button.setAttribute('aria-current',String(i===matchIndex)));$('search-count').textContent=`第 ${matchIndex+1} / ${matches.length}${matches.length===200?'（前200处）':''} 处`;if(close){$('search').close();viewport.focus();}}
+function jumpMatch(index,close=false){if(!matches.length||working)return;sessionTracker.pause();matchIndex=(index+matches.length)%matches.length;highlight=matches[matchIndex];position(locate({paragraph:highlight.paragraph,offset:highlight.start,dy:layout.lh*2}));epoch++;snapshots={};remember();scheduleSave();$('matches').querySelectorAll('button').forEach((button,i)=>button.setAttribute('aria-current',String(i===matchIndex)));$('search-count').textContent=`第 ${matchIndex+1} / ${matches.length}${matches.length===200?'（前200处）':''} 处`;if(close){$('search').close();viewport.focus();}}
 $('previous-match').onclick=()=>jumpMatch(matchIndex-1,true);$('next-match').onclick=()=>jumpMatch(matchIndex+1,true);
 window.reader.onClose(async()=>{try{if(resizeTimer){clearTimeout(resizeTimer);if(book&&layout&&signature!==key())reflow(capture());}await flushReading();await save();if(cloudUser)await synchronizeCloud(false);await window.reader.finishClose();}catch(e){report(new Error('保存失败，窗口已保留：'+e.message));}});
 window.addEventListener('blur',()=>save().catch(report));
@@ -162,7 +164,7 @@ function updateProgress(){if(!layout)return;const maximum=Math.max(0,layout.tota
   for(const id of ['reading-progress','navigation-progress'])$(id).value=value;
   for(const id of ['reading-percentage','navigation-percentage'])$(id).textContent=(value/100).toFixed(2)+'%';
 }
-function jumpTo(y){if(!layout||working)return;highlight=null;position(y);epoch++;snapshots={};remember();scheduleSave();}
+function jumpTo(y){if(!layout||working)return;sessionTracker.pause();highlight=null;position(y);epoch++;snapshots={};remember();scheduleSave();}
 for(const id of ['reading-progress','navigation-progress'])$(id).addEventListener('input',()=>jumpTo(Number($(id).value)/10000*Math.max(0,layout.total-viewport.clientHeight)));
 function renderChapters(){const filter=$('chapter-filter').value.trim().toLowerCase();const chapters=book.chapters.filter(c=>c.title.toLowerCase().includes(filter));const anchor=capture();let current=-1;for(let i=0;i<book.chapters.length;i++)if(book.chapters[i].paragraph<=(anchor?.paragraph||0))current=book.chapters[i].paragraph;
   $('chapters').replaceChildren();$('chapter-count').textContent=`${chapters.length} 个章节${chapters.length>400?'，显示前 400 个；可输入标题筛选':''}`;
@@ -190,7 +192,7 @@ window.readerDiagnostics=()=>({screenMode,id:book?.id,encoding:book?.encoding,se
 
 function syncWindowButtons(){window.reader.windowButtons(!(screenMode==='reading'&&view.pure)).catch(report);}
 function setScreen(){
-  syncWindowButtons();
+  syncWindowButtons();$('reading-hud').hidden=screenMode!=='reading';
   $('cloud-button').disabled=false;
   document.body.classList.toggle('library-view',screenMode==='library');
   document.body.classList.toggle('stats-view',screenMode==='stats');
@@ -225,40 +227,37 @@ $('theme-select').onchange=()=>{
   const theme=savedThemes[Number($('theme-select').value)];if(!theme||$('theme-select').value==='')return;
   const anchor=capture();book.settings={...theme.settings};$('theme-name').value=theme.name;syncSettings();reflow(anchor);
 };
-// A monotonic foreground clock excludes suspension gaps and modal/page transitions.
-let lastTick=performance.now(),timePending=0,timeBook=null,timeChain=Promise.resolve();
-let wasReading=false;
-function readingActive(){return Boolean(book&&layout&&!working&&!opening&&screenMode==='reading'&&document.hasFocus()&&!document.hidden&&!document.querySelector('dialog[open]'));}
-function tickReading(){const now=performance.now(),delta=now-lastTick;lastTick=now;
-  const active=readingActive();if(active&&wasReading&&delta>0&&delta<2500){timePending+=delta;timeBook=book.id;}wasReading=active;
+// Session checkpoints use cumulative values, making retries idempotent.
+let lastTick=performance.now(),timeChain=Promise.resolve(),wasReading=false;
+const pendingSessions=new Map();
+function readingActive(){return Boolean(book&&layout&&!working&&!opening&&screenMode==='reading'&&document.hasFocus()&&!document.hidden&&!document.querySelector('dialog[open]')&&Date.now()-lastActivity<90000);}
+function tickReading(){const now=performance.now(),delta=now-lastTick;lastTick=now;const active=readingActive();
+ if(active&&wasReading&&delta>0&&delta<2500){const record=sessionTracker.add({bookId:book.id,read:currentReadCount(),total:charPrefix.at(-1)||0,ms:delta,platform:'desktop'});if(record)pendingSessions.set(record.id,record);}
+ if(!active)sessionTracker.pause();wasReading=active;updateReaderHUD();
 }
-function flushReading(){tickReading();if(cloudTransfer)return timeChain;const ms=timePending,id=timeBook;if(!ms||!id)return timeChain;
-  timePending=0;timeChain=timeChain.then(()=>window.reader.readingTime({id,ms})).catch(e=>{report(new Error('阅读时长保存失败：'+e.message));});return timeChain;
+function flushReading(){tickReading();if(cloudTransfer)return timeChain;
+ const pending=[...pendingSessions.values()];pendingSessions.clear();
+ for(const record of pending)timeChain=timeChain.then(async()=>{await window.reader.readingTime({id:record.bookId,ms:0,session:record});paceSessions=paceSessions.filter(item=>item.id!==record.id);paceSessions.push(record);}).catch(e=>{if(!pendingSessions.has(record.id)||pendingSessions.get(record.id).durationMs<record.durationMs)pendingSessions.set(record.id,record);report(new Error('阅读记录保存失败：'+e.message));});return timeChain;
+}
+function updateReaderHUD(){if(!book||!layout||screenMode!=='reading')return;
+ const read=currentReadCount(),total=charPrefix.at(-1)||0,estimate=Analytics.estimate(total-read,paceSessions,sessionTracker.current);
+ $('hud-clock').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false});
+ $('hud-progress').textContent=`${(total?Math.min(100,read/total*100):0).toFixed(1)}%`;
+ $('hud-eta').textContent=estimate.text;$('hud-eta').title=estimate.description;$('hud-eta').setAttribute('aria-label',estimate.text+'，'+estimate.description);
+ document.body.style.setProperty('--reading-paper',book.settings.background);
+ const hex=book.settings.background.slice(1),brightness=parseInt(hex.slice(0,2),16)*.299+parseInt(hex.slice(2,4),16)*.587+parseInt(hex.slice(4,6),16)*.114;
+ $('reading-hud').style.setProperty('--hud-gray',brightness>150?'#737373':'#999999');
 }
 setInterval(tickReading,1000);setInterval(flushReading,5000);
+for(const name of ['pointerdown','wheel','keydown'])document.addEventListener(name,()=>{lastActivity=Date.now();},{passive:true});
 window.addEventListener('blur',()=>{tickReading();wasReading=false;flushReading();});
-window.addEventListener('focus',()=>{lastTick=performance.now();wasReading=readingActive();});
+window.addEventListener('focus',()=>{lastActivity=Date.now();lastTick=performance.now();wasReading=readingActive();updateReaderHUD();});
 document.addEventListener('visibilitychange',()=>{tickReading();wasReading=false;flushReading();});
 const modalObserver=new MutationObserver(()=>{tickReading();wasReading=false;});
 document.querySelectorAll('dialog').forEach(d=>modalObserver.observe(d,{attributes:true,attributeFilter:['open']}));
-const duration=ms=>ms<60000?`${Math.floor(ms/1000)} 秒`:ms<3600000?`${Math.floor(ms/60000)} 分钟`:`${Math.floor(ms/3600000)} 小时 ${Math.floor(ms/60000)%60} 分`;
-const dateKey=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-async function showStats(){
-  await flushReading();await save();screenMode='stats';setScreen();
-  const [preferences,books]=await Promise.all([window.reader.preferences(),window.reader.library()]);
-  const days=preferences.days||{},sum=values=>Object.values(values||{}).reduce((a,b)=>a+b,0);
-  const total=Object.values(days).reduce((a,b)=>a+sum(b),0),today=sum(days[dateKey(new Date())]);
-  $('stats-summary').replaceChildren();
-  for(const [label,value] of [['今日阅读',duration(today)],['累计阅读',duration(total)],['阅读天数',Object.values(days).filter(d=>sum(d)>0).length+' 天']]){
-    const div=document.createElement('div');div.className='stat';const span=document.createElement('span');span.textContent=label;const strong=document.createElement('strong');strong.textContent=value;div.append(span,strong);$('stats-summary').append(div);
-  }
-  const entries=Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-13+i);return {date:dateKey(d),ms:sum(days[dateKey(d)])};});
-  const maximum=Math.max(60000,...entries.map(d=>d.ms));$('daily-chart').replaceChildren();
-  for(const day of entries){const col=document.createElement('div');col.className='day-column';col.title=`${day.date}：${duration(day.ms)}`;const label=document.createElement('span');label.textContent=day.ms?duration(day.ms):'';const bar=document.createElement('div');bar.className='day-bar';bar.style.height=day.ms/maximum*160+'px';const date=document.createElement('small');date.textContent=day.date.slice(5);col.append(label,bar,date);$('daily-chart').append(col);}
-  $('daily-chart').setAttribute('aria-label',entries.map(d=>`${d.date} ${duration(d.ms)}`).join('；'));
-  $('book-time').replaceChildren();const ranked=books.map(b=>({...b,ms:Object.values(days).reduce((a,d)=>a+(d[b.id]||0),0)})).sort((a,b)=>b.ms-a.ms);
-  for(const b of ranked){const row=document.createElement('div');row.className='time-row';const title=document.createElement('span');title.textContent=b.title;const time=document.createElement('strong');time.textContent=duration(b.ms);row.append(title,time);$('book-time').append(row);}
-  if(!ranked.length)$('book-time').textContent='还没有阅读记录。从书架打开一本书，让第一段阅读时光开始。';
+async function showStats(){await flushReading();await save();sessionTracker.pause();screenMode='stats';setScreen();
+ const [preferences,books]=await Promise.all([window.reader.preferences(),window.reader.library()]);
+ window.ReadingStats.render($('stats-dashboard'),{days:preferences.days||{},books,sessions:Analytics.sessions(preferences.dayCounters)});
 }
 $('stats-button').onclick=()=>showStats().catch(report);$('stats-back').onclick=()=>showLibrary().catch(report);
 let uiStyle='dark',studioReady=false,studioReturn='library',cloudAccountEpoch=0;

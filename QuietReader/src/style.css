@@ -27,3 +27,10 @@ body.mac>header{padding-left:92px}body.mac .window-controls{display:none}#viewpo
 @media(max-width:850px){header{gap:0;font-size:11px}header button{padding:7px 4px}#book-title{display:none}#pure-button{display:none}}
 #cloud-username,#cloud-password{display:block;width:100%;margin-top:8px;padding:10px;background:#212121;color:#ccc;border:1px solid #555;border-radius:4px}#cloud-login-submit{width:100%}#cloud-signed-in p{font-size:13px;line-height:1.8}.cloud-conflict{border-top:1px solid #555;margin-top:16px;padding-top:12px}.cloud-conflict p{font-size:11px;overflow-wrap:anywhere}.cloud-conflict button{margin-right:8px}#cloud-account-status{white-space:pre-wrap}
 .cloud-conflict pre{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}.cloud-conflict details{margin-bottom:12px}.cloud-conflict summary{cursor:pointer;font-size:12px}
+
+/* Quiet metadata lives outside the selectable reading surface. */
+body:not(.library-view):not(.stats-view):not(.studio-view){background:var(--reading-paper,#212121)}
+body:not(.pure) #viewport{inset:78px 0 78px}body:not(.pure) #page{top:78px}
+body.pure #viewport{inset:28px 0 30px}body.pure #page{top:28px}
+body:not(.pure) #reading-hud .hud-clock{top:60px}body:not(.pure) #reading-hud .hud-progress,body:not(.pure) #reading-hud .hud-eta{bottom:62px}
+#reading-hud[hidden]{display:none}#stats-dashboard{max-width:880px;margin:0 auto}

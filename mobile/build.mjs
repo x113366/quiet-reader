@@ -13,6 +13,7 @@ await build({
   minify: true,
 });
 await copyFile("src/app.css", "dist/app.css");
+await copyFile("../QuietReader/src/analytics.css", "dist/analytics.css");
 await copyFile("index.html", "dist/index.html");
 // Dependency-free PNG icons: cream open book on the reader's charcoal background.
 function crc(bytes) {
@@ -107,6 +108,7 @@ const files = [
   "./index.html",
   "./app.js",
   "./app.css",
+  "./analytics.css",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

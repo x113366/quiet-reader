@@ -127,8 +127,15 @@ app.whenReady().then(async()=>{
   });
   handler('reading-time', payload=>{
     if(!payload || payload.id!==current || !Number.isFinite(payload.ms) || payload.ms<0 || payload.ms>15000) throw new Error('无效阅读时长');
-    const now=new Date();const day=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
-    return store.updatePreferences(p=>{p.dayCounters||={[accounts.device.id]:p.days||{}};const own=p.dayCounters[accounts.device.id]||={};own[day]||={};own[day][payload.id]=(own[day][payload.id]||0)+payload.ms;p.days=sumDays(p.dayCounters);});
+    const analytics=require('./reading-analytics.js');
+    if(payload.session){analytics.validateSession(payload.session);if(payload.session.bookId!==payload.id)throw new Error('无效阅读书籍');}
+    return store.updatePreferences(p=>{p.dayCounters||={[accounts.device.id]:p.days||{}};const own=p.dayCounters[accounts.device.id]||={};
+      if(payload.session){const record={...payload.session,deviceId:accounts.device.id},bucket=analytics.sessionBucket(accounts.device.id,record);
+        const days=p.dayCounters[bucket]||{},previous=days._sessions?.[record.id];if(previous&&previous.durationMs>record.durationMs)return;
+        const next=analytics.checkpoint(days,previous,record);next._sessions||={};next._sessions[record.id]=record;p.dayCounters[bucket]=next;
+      }else{const day=analytics.dayKey(new Date());own[day]||={};own[day][payload.id]=(own[day][payload.id]||0)+payload.ms;}
+      p.days=sumDays(p.dayCounters);
+    });
   });
   const analyses=new Map();
   handler('analyze', async id=>{

@@ -23,3 +23,12 @@ test('concurrent edits become explicit conflicts and resolution is backed up',as
 test('failed upload retries safely and path traversal is rejected',async()=>{
  const remote=server(),a=await profile();await seed(a);let fail=true;const A=new CloudSync(a,{token:'owner'},'a',async(n,p)=>{if(fail&&n==='reader_put')throw Error('offline');return remote(n,p);});await assert.rejects(A.run(),/offline/);fail=false;assert.ok((await A.run()).uploaded>0);await assert.rejects(A.apply('asset/../../bad',{size:0,parts:0,hash:'0'.repeat(64)}),/路径/);
 });
+test('monthly reading sessions sync both ways while legacy totals remain additive',async()=>{
+ const A=require('../src/reading-analytics.js'),request=server(),a=await profile(),b=await profile(),id=await seed(a),device='deviceA',now=Date.now();
+ const record=new A.Tracker().add({bookId:id,read:10,total:100,ms:5000,now,platform:'desktop'});record.deviceId=device;
+ const bucket=A.sessionBucket(device,record);await a.updatePreferences(p=>{p.dayCounters={[bucket]:{...A.checkpoint({},null,record),_sessions:{[record.id]:record}}};p.days=sumDays(p.dayCounters);});
+ const syncA=new CloudSync(a,{token:'owner'},device,request),syncB=new CloudSync(b,{token:'owner'},'deviceB',request);
+ await syncA.run();await syncB.run();assert.equal(A.sessions((await b.preferences()).dayCounters).length,1);
+ assert.equal(Object.values((await b.preferences()).days).reduce((n,day)=>n+Object.values(day).reduce((a,b)=>a+b,0),0),5000);
+ await syncB.run();await syncA.run();assert.equal(A.sessions((await a.preferences()).dayCounters)[0].durationMs,5000);
+});

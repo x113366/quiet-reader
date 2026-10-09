@@ -9,6 +9,9 @@ on:
         "QuietReader/src/search-engine.js",
         "QuietReader/src/cloud-config.json",
         "QuietReader/src/reading-merge.cjs",
+        "QuietReader/src/reading-analytics.js",
+        "QuietReader/src/reading-stats.js",
+        "QuietReader/src/analytics.css",
         ".github/workflows/mobile-pages.yml",
       ]
   workflow_dispatch:

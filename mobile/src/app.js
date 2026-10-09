@@ -1,3 +1,6 @@
+import Analytics from "../../QuietReader/src/reading-analytics.js";
+import ReadingStats from "../../QuietReader/src/reading-stats.js";
+const sessionTracker=new Analytics.Tracker();
 let savedScreenAnchor=null,pageLeaving=false,lastAutoSync=0;
 import {
   paragraphs,
@@ -125,6 +128,7 @@ function clearHighlight() {
   document.querySelectorAll("#text p").forEach((p) => p.normalize());
 }
 function top(title, subtitle) {
+  document.body.dataset.screen=screen;
   app.innerHTML = `<header class="page-header"><div class="brand"><span class="seal">静</span><span>QUIET READER</span></div><button id="style" aria-label="切换深浅风格">${document.body.dataset.ui === "dark" ? "浅色" : "深色"} ◐</button></header><main class="page"><div class="eyebrow">YOUR PERSONAL READING ROOM</div><h1>${title}</h1><p class="subtitle">${subtitle}</p><div id="page-content"></div></main><nav class="tabs" aria-label="主导航"><button id="library-tab">书架</button><button id="stats-tab">阅读足迹</button><button id="account-tab">${escape(session?.username || "账号与同步")}</button></nav>`;
   $("style").onclick = () =>
     task(async () => {
@@ -196,13 +200,14 @@ async function openBook(id) {
   const bytes = await bytesFor(`asset/books/${id}.txt`);
   content = paragraphs(decode(bytes, base.encoding).text);
   if (!content.length) throw Error("这本书没有可阅读的正文");
-  book = { id, ...base };
+  sessionTracker.pause();book = { id, ...base };
+  document.body.dataset.screen="reading";
   screen = "reading";
   prefix = [0];
   for (const p of content) prefix.push(prefix.at(-1) + count(p.text));
   menu = false;
   app.innerHTML =
-    '<section id="reader"><article id="text" aria-label="书籍正文" tabindex="0"></article></section><div id="reader-top" class="reader-controls" hidden><button id="back">‹ 书库</button><span id="book-title"></span><button id="find">查找</button></div><div id="reader-bottom" class="reader-controls" hidden><div class="progress-label"><span id="read-label"></span><button id="chapters">目录</button></div><input id="position" aria-label="阅读进度" type="range" min="0" max="10000"><div class="reader-actions"><button id="review">书评</button><button id="appearance">排版</button><button id="export">导出 / 分享</button></div></div>';
+    '<div id="reader-hud" class="reading-hud"><span id="hud-clock" class="hud-clock" aria-label="当前时间"></span><span id="hud-progress" class="hud-progress" aria-label="阅读进度"></span><span id="hud-eta" class="hud-eta" aria-label="预计剩余阅读时间"></span></div><section id="reader"><article id="text" aria-label="书籍正文" tabindex="0"></article></section><div id="reader-top" class="reader-controls" hidden><button id="back">‹ 书库</button><span id="book-title"></span><button id="find">查找</button></div><div id="reader-bottom" class="reader-controls" hidden><div class="progress-label"><span id="read-label"></span><button id="chapters">目录</button></div><input id="position" aria-label="阅读进度" type="range" min="0" max="10000"><div class="reader-actions"><button id="review">书评</button><button id="appearance">排版</button><button id="export">导出 / 分享</button></div></div>';
   $("book-title").textContent = base.title;
   const fragment = document.createDocumentFragment();
   content.forEach((p, i) => {
@@ -299,6 +304,9 @@ function readerStyle() {
   const el = $("reader");
   el.style.setProperty("--reading-font", fonts[s.mobileFont].stack);
   el.style.setProperty("--reading-bg", s.background);
+  document.body.style.setProperty("--reading-paper",s.background);
+  const hex=s.background.slice(1),brightness=parseInt(hex.slice(0,2),16)*.299+parseInt(hex.slice(2,4),16)*.587+parseInt(hex.slice(4,6),16)*.114;
+  $("reader-hud")?.style.setProperty("--hud-gray",brightness>150?"#737373":"#999999");
   el.style.setProperty("--reading-color", s.color);
   el.style.setProperty("--reading-size", s.fontSize + "px");
   el.style.setProperty("--reading-leading", s.lineHeight);
@@ -337,6 +345,7 @@ function updateProgressLabel() {
   $("position").value = total ? (read / total) * 10000 : 0;
   $("read-label").textContent =
     `${(total ? (read / total) * 100 : 0).toFixed(1)}% · ${read.toLocaleString()} / ${total.toLocaleString()} 字`;
+  updateReaderHUD();
 }
 async function saveProgress() {
   if (!book) return;
@@ -359,6 +368,7 @@ async function saveProgress() {
   await persist();
 }
 function jumpAnchor(a) {
+  sessionTracker.pause();
   const p =
     $("text").children[
       Math.max(0, Math.min(content.length - 1, a.paragraph || 0))
@@ -898,68 +908,30 @@ function conflictsPanel() {
 function activity() {
   lastActivity = Date.now();
 }
+function readingSessions(){return Analytics.sessions(Object.fromEntries(Object.entries(state.entries).filter(([key])=>key.startsWith('time/')).map(([key,entry])=>[key,entry.payload])));}
+function updateReaderHUD(){if(!book||screen!=='reading'||!$('hud-clock'))return;
+ const read=readCount(),total=prefix.at(-1)||0,estimate=Analytics.estimate(total-read,readingSessions(),sessionTracker.current);
+ $('hud-clock').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false});
+ $('hud-progress').textContent=`${(total?Math.min(100,read/total*100):0).toFixed(1)}%`;
+ $('hud-eta').textContent=estimate.text;$('hud-eta').title=estimate.description;$('hud-eta').setAttribute('aria-label',estimate.text+'，'+estimate.description);
+}
 function tick() {
-  const now = performance.now(),
-    elapsed = Math.max(0, Math.min(5000, now - lastTick));
-  lastTick = now;
-  if (
-    !book ||
-    !active ||
-    document.visibilityState !== "visible" ||
-    panel.open ||
-    Date.now() - lastActivity > 90000
-  )
-    return;
-  const id = book.id,
-    owner = account,
-    day = new Date().toLocaleDateString("sv-SE");
-  task(async () => {
-    if (owner !== account) return;
-    const key = "time/" + state.device,
-      days = structuredClone(payload(key));
-    days[day] ??= {};
-    days[day][id] = (days[day][id] || 0) + Math.round(elapsed);
-    set(key, days);
-    await persist();
-  });
+ const now=performance.now(),elapsed=now-lastTick;lastTick=now;
+ if(!book||!active||document.visibilityState!=='visible'||panel.open||Date.now()-lastActivity>90000||elapsed<=0||elapsed>10000){sessionTracker.pause();return;}
+ const owner=account,device=state.device;
+ const record=sessionTracker.add({bookId:book.id,read:readCount(),total:prefix.at(-1)||0,ms:Math.round(elapsed),platform:'mobile'});
+ if(!record)return;record.deviceId=device;updateReaderHUD();
+ const timeKey='time/'+Analytics.sessionBucket(device,record),days=payload(timeKey),previous=days._sessions?.[record.id];
+   if(previous&&previous.durationMs>record.durationMs)return;
+ const next=Analytics.checkpoint(days,previous,record);next._sessions||={};next._sessions[record.id]=record;set(timeKey,next);
+ task(async()=>{if(owner===account)await persist();});
 }
-function pauseTime() {
-  tick();
-  lastTick = performance.now();
+function pauseTime(){tick();sessionTracker.pause();lastTick=performance.now();}
+async function showStats(){pauseTime();await saveProgress();book=null;screen='stats';top('阅读足迹','一页一页，时间有了形状。');
+ const books=Object.entries(state.entries).filter(([key])=>/^book\/[a-f0-9]{64}\/base$/.test(key)).map(([key,entry])=>({...entry.payload,counts:payload(keyFor(key.split('/')[1],'reading')).counts}));
+ ReadingStats.render($('page-content'),{days:sumDays(state.entries),books,sessions:readingSessions()});
 }
-async function showStats() {
-  pauseTime();
-  book = null;
-  screen = "stats";
-  top("阅读足迹", "一页一页，时间有了形状。");
-  const days = sumDays(state.entries),
-    total = Object.values(days).reduce(
-      (sum, books) => sum + Object.values(books).reduce((a, b) => a + b, 0),
-      0,
-    );
-  const dates = Array.from({ length: 14 }, (_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (13 - i));
-      return d.toLocaleDateString("sv-SE");
-    }),
-    values = dates.map(
-      (day) =>
-        Object.values(days[day] || {}).reduce((a, b) => a + b, 0) / 60000,
-    ),
-    max = Math.max(1, ...values);
-  $("page-content").innerHTML =
-    `<div class="stat-total"><b>${(total / 3600000).toFixed(1)}</b><span>小时 · 累计有效阅读</span></div><h2>近十四天</h2><div class="chart" role="img" aria-label="近十四天阅读分钟数：${dates.map((d, i) => `${d} ${values[i].toFixed(1)} 分钟`).join("，")}">${values.map((v, i) => `<div class="bar-col"><span>${v ? Math.round(v) : ""}</span><div class="bar" style="height:${Math.max(2, (v / max) * 140)}px"></div><small>${dates[i].slice(8)}</small></div>`).join("")}</div><p class="hint">单位：分钟。仅记录前台阅读；打开面板、锁屏或切到后台即暂停。90 秒无操作后暂停，滚动或触摸继续。</p><div id="book-stats"></div>`;
-  const totals = {};
-  for (const books of Object.values(days))
-    for (const [id, ms] of Object.entries(books))
-      totals[id] = (totals[id] || 0) + ms;
-  for (const [id, ms] of Object.entries(totals).sort((a, b) => b[1] - a[1])) {
-    const row = document.createElement("div");
-    row.className = "cache-row";
-    row.textContent = `${payload(keyFor(id, "base")).title || "书籍"} · ${(ms / 60000).toFixed(0)} 分钟`;
-    $("book-stats").append(row);
-  }
-}
+setInterval(updateReaderHUD,10000);
 setInterval(tick, 5000);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
