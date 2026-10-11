@@ -15,7 +15,7 @@ class Store {
   async list() {
     const files = await fs.readdir(path.join(this.root, 'books'));
     const rows = await Promise.all(files.filter(f=>/^[a-f0-9]{64}\.json$/.test(f)).map(f=>this.read(f.slice(0,64))));
-    return rows.filter(Boolean).sort((a,b)=>(b.updated || 0)-(a.updated || 0));
+    const browsed=(await this.preferences()).lastBrowsed||{};return rows.filter(Boolean).sort((a,b)=>(browsed[b.id]||0)-(browsed[a.id]||0)||(b.updated||0)-(a.updated||0));
   }
   async preferences() {
     try { return JSON.parse(await fs.readFile(path.join(this.root,'preferences.json'),'utf8')); }

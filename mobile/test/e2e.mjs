@@ -93,8 +93,7 @@ for (const [name, engine] of [
       mimeType: "text/plain",
       buffer: Buffer.from(text),
     });
-  await page.locator("#preview").click();
-  await expect(page.locator("#preview-result")).toContainText("将删除 0 行");
+  await expect(page.locator("#cleaning-options")).toBeHidden();
   await page.locator("#import-save").click();
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.locator(".cover").click();
@@ -167,6 +166,16 @@ for (const [name, engine] of [
   await page.locator("#logout").click();
   await login("alice");
   await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.locator('#import').click();
+  await page.locator('#file').setInputFiles([{name:'第二本.txt',mimeType:'text/plain',buffer:Buffer.from('第二本正文。')},{name:'第三本.txt',mimeType:'text/plain',buffer:Buffer.from('第三本正文。')}]);
+  await expect(page.locator('#cleaning-options')).toBeHidden();
+  await page.locator('#clean-enable').check();await expect(page.locator('#cleaning-options')).toBeVisible();
+  await page.locator('#clean-enable').uncheck();await expect(page.locator('#cleaning-options')).toBeHidden();
+  await page.locator('#import-save').click();await expect(page.locator('.book-card')).toHaveCount(3);
+  await expect(page.locator('.book-card').first()).toContainText('山间来信');
+  await page.locator('.book-card').filter({hasText:'第二本'}).locator('.cover').click();
+  await page.touchscreen.tap(195,420);await page.locator('#back').click();
+  await expect(page.locator('.book-card').first()).toContainText('第二本');
   await page.setViewportSize({ width: 844, height: 390 });
   expect(
     await page.evaluate(

@@ -312,10 +312,11 @@ function cleaningConfig(){return {enabled:$('clean-enabled').checked,mode:$('cle
 async function beginImport(files){
  if(importBusy)return;importFilesPending=files;if(!files.length)return;cleaningPreviewKey=null;
  const [presets,prefs]=await Promise.all([window.reader.cleaningPresets(),window.reader.preferences()]);
- const saved=prefs.cleaning||{};$('clean-enabled').checked=false;$('clean-mode').value=saved.mode||'exact';$('clean-rules').value=saved.rules||'';$('clean-presets').replaceChildren();
+ const saved=prefs.cleaning||{};$('clean-enabled').checked=false;$('cleaning-options').hidden=true;$('clean-mode').value=saved.mode||'exact';$('clean-rules').value=saved.rules||'';$('clean-presets').replaceChildren();
  for(const preset of presets){const label=document.createElement('label'),input=document.createElement('input'),span=document.createElement('span');input.type='checkbox';input.value=preset.id;input.checked=(saved.presets||[]).includes(preset.id);span.textContent=preset.name;label.append(input,span);label.title=preset.rules.join('；');$('clean-presets').append(label);}
  $('import-files-label').textContent=`${files.length} 本：${files.map(f=>f.name).join('、')}`;$('clean-preview-output').textContent='默认原样导入。启用清洗后，请先预览将删除的整行内容。';$('import-options').showModal();
 }
+$('clean-enabled').onchange=()=>{$('cleaning-options').hidden=!$('clean-enabled').checked;cleaningPreviewKey=null;};
 $('clean-preview').onclick=async()=>{
  const config=cleaningConfig();cleaningPreviewKey=null;$('clean-preview').disabled=true;$('import-confirm').disabled=true;
  try{const results=await window.reader.cleaningPreview(importFilesPending,config);cleaningPreviewKey=JSON.stringify(config);$('clean-preview-output').textContent=results.map(r=>`${r.name}：命中 ${r.removed} 行${r.removed>100?'（显示前 100 行）':''}\n`+r.matches.map(m=>`第 ${m.line} 行 [${m.rule}]\n${m.text}`).join('\n')).join('\n\n');}

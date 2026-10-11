@@ -155,6 +155,7 @@ app.whenReady().then(async()=>{
     const book = await store.read(id); if(!book) throw new Error('书籍不存在');
     const data = await read(store.file(id,'txt'), encoding || book.encoding);
     if(encoding && encoding !== book.encoding) { book.encoding=data.encoding; book.progress=null;book.counts=data.counts; await store.write(book); }
+    await store.updatePreferences(p=>{p.lastBrowsed||={};p.lastBrowsed[id]=Date.now();});
     current=id;
     const area=screen.getDisplayMatching(win.getBounds()).workArea;
     restoreSize(Math.min(area.width,Math.max(420,book.window.width)),Math.min(area.height,Math.max(360,book.window.height)));

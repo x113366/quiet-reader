@@ -160,6 +160,7 @@ async function library(syncOnEntry=true) {
   const rows = Object.entries(state.entries).filter(([key]) =>
     /^book\/[a-f0-9]{64}\/base$/.test(key),
   );
+  const browsing=browsingOrder();rows.sort(([ka,a],[kb,b])=>(browsing[kb.split('/')[1]]||0)-(browsing[ka.split('/')[1]]||0)||(b.payload.updated||0)-(a.payload.updated||0));
   if (!rows.length) {
     $("shelf").innerHTML =
       '<div class="empty"><div class="book-outline">静</div><h2>一本书，一段自己的时间</h2><p>从「文件」导入 TXT，或登录统一账号<br>取回你的云端书架。</p></div>';
@@ -194,12 +195,14 @@ async function bytesFor(key) {
   toast("正在下载并校验正文…");
   return download(account, key, entry.payload, client(session));
 }
+function browsingOrder(){try{return JSON.parse(localStorage.getItem('reader-browsing:'+account)||'{}');}catch{return {};}}
 async function openBook(id) {
   if(session&&!book&&navigator.onLine&&Date.now()-lastAutoSync>5000){try{await syncNow();}catch{}}
   const base = payload(keyFor(id, "base"));
   const bytes = await bytesFor(`asset/books/${id}.txt`);
   content = paragraphs(decode(bytes, base.encoding).text);
   if (!content.length) throw Error("这本书没有可阅读的正文");
+  try{const order=browsingOrder();order[id]=Date.now();localStorage.setItem('reader-browsing:'+account,JSON.stringify(order));}catch{}
   sessionTracker.pause();book = { id, ...base };
   document.body.dataset.screen="reading";
   screen = "reading";
@@ -574,109 +577,27 @@ function appearancePanel() {
   );
 }
 function importPanel() {
-  const old = payload("prefs/cleaning", {});
-  let file, original, decoded, preview;
-  dialog(
-    "导入 TXT",
-    `<label class="file-picker">从 iPhone「文件」选择<input id="file" type="file" accept=".txt,text/plain"></label><label>文本编码<select id="encoding"><option value="auto">自动识别 UTF-8 / GB18030</option><option value="utf-8">UTF-8</option><option value="gb18030">GB18030</option></select></label><label class="check"><input id="clean-enable" type="checkbox">本次手动启用广告清洗</label><div class="hint">默认保留全部正文。启用后会额外保存清洗前原文，可随时导出。</div><label>删除方式<select id="clean-mode"><option value="exact">精确匹配整行删除</option><option value="fuzzy">模糊匹配整行删除</option></select></label>${cleaning.presets.map((p) => `<label class="check"><input type="checkbox" name="preset" value="${p.id}" ${(old.presets || []).includes(p.id) ? "checked" : ""}>${p.name}</label>`).join("")}<label>自定义规则（每行一条）<textarea id="rules">${escape(old.rules || "")}</textarea></label><button id="preview">预览处理结果</button><div id="preview-result" class="preview"></div><button id="import-save" class="primary" disabled>保存到书架</button>`,
-    () => {
-      const options = () => ({
-        enabled: $("clean-enable").checked,
-        mode: $("clean-mode").value,
-        presets: [...document.querySelectorAll("[name=preset]:checked")].map(
-          (e) => e.value,
-        ),
-        rules: $("rules").value,
-      });
-      $("file").onchange = () => {
-        file = $("file").files[0];
-        preview = null;
-        $("import-save").disabled = true;
-      };
-      for (const id of ["encoding", "clean-enable", "clean-mode", "rules"])
-        $(id).oninput = () => {
-          $("import-save").disabled = true;
-          preview = null;
-        };
-      document.querySelectorAll("[name=preset]").forEach(
-        (e) =>
-          (e.onchange = () => {
-            $("import-save").disabled = true;
-            preview = null;
-          }),
-      );
-      $("preview").onclick = () =>
-        task(async () => {
-          if (!file) throw Error("请先选择 TXT");
-          if (file.size > 64 * 1024 * 1024) throw Error("单本上限为 64 MB");
-          original = await file.arrayBuffer();
-          decoded = decode(original, $("encoding").value);
-          preview = cleaning.clean(decoded.text, options());
-          $("preview-result").textContent =
-            `${file.name}\n${decoded.encoding} · ${count(preview.text).toLocaleString()} 字\n将删除 ${preview.removed} 行${preview.removed > 100 ? "（预览前 100 行）" : ""}\n` +
-            preview.matches
-              .map((m) => `第 ${m.line} 行：${m.text}`)
-              .join("\n") +
-            (preview.removed ? "" : "\n" + preview.text.slice(0, 400));
-          $("import-save").disabled = false;
-        });
-      $("import-save").onclick = () =>
-        task(async () => {
-          if (!preview) throw Error("请先预览");
-          const id = await hash(original);
-          if (state.entries[keyFor(id, "base")])
-            throw Error("此原文件已在书架，已保留现有进度");
-          const opt = options(),
-            bytes = opt.enabled
-              ? new TextEncoder().encode(preview.text).buffer
-              : original;
-          const addAsset = async (key, data) => {
-            await put("assets", assetKey(account, key), data);
-            set(key, {
-              hash: await hash(data),
-              size: data.byteLength,
-              parts: Math.ceil(data.byteLength / 393216),
-            });
-          };
-          await addAsset(`asset/books/${id}.txt`, bytes);
-          await addAsset(`asset/books/${id}.original.txt`, original);
-          set(keyFor(id, "base"), {
-            id,
-            title: file.name.replace(/\.txt$/i, ""),
-            encoding: opt.enabled ? "utf-8" : decoded.encoding,
-            size: bytes.byteLength,
-            cleaning: {
-              ...opt,
-              removed: preview.removed,
-              originalEncoding: decoded.encoding,
-            },
-          });
-          const s = mobileSettings(
-            document.body.dataset.ui === "light"
-              ? { ...defaults, background: "#fbf8f1", color: "#243c35" }
-              : defaults,
-          );
-          set(keyFor(id, "reading"), {
-            settings: s,
-            progress: null,
-            counts: {
-              total: paragraphs(preview.text).reduce(
-                (n, p) => n + count(p.text),
-                0,
-              ),
-              read: 0,
-            },
-          });
-          set("prefs/cleaning", { ...old, ...opt, enabled: false });
-          await persist();
-          navigator.storage?.persist?.().catch(() => {});
-          closePanel();
-          await library();
-          toast("已保存正文及原文备份");
-            });
-    },
-  );
+ const old=payload('prefs/cleaning',{});let files=[],prepared=null;
+ dialog('导入 TXT',`<label class="file-picker">选择一本或多本 TXT<input id="file" type="file" multiple accept=".txt,text/plain"></label><p id="selected-files" class="hint"></p><label>文本编码<select id="encoding"><option value="auto">自动识别 UTF-8 / GB18030</option><option value="utf-8">UTF-8</option><option value="gb18030">GB18030</option></select></label><label class="check"><input id="clean-enable" type="checkbox">启用广告清洗</label><div id="cleaning-options" hidden><p class="hint">清洗前原文另存备份。请先预览再导入。</p><label>删除方式<select id="clean-mode"><option value="exact">精确匹配整行删除</option><option value="fuzzy">模糊匹配整行删除</option></select></label>${cleaning.presets.map(p=>`<label class="check"><input type="checkbox" name="preset" value="${p.id}" ${(old.presets||[]).includes(p.id)?'checked':''}>${p.name}</label>`).join('')}<label>自定义规则（每行一条）<textarea id="rules">${escape(old.rules||'')}</textarea></label><button id="preview">预览处理结果</button><div id="preview-result" class="preview"></div></div><button id="import-save" class="primary" disabled>保存到书架</button>`,()=>{
+  $('clean-mode').value=old.mode||'exact';
+  const options=()=>({enabled:$('clean-enable').checked,mode:$('clean-mode').value,presets:[...document.querySelectorAll('[name=preset]:checked')].map(e=>e.value),rules:$('rules').value});
+  const invalidate=()=>{prepared=null;$('cleaning-options').hidden=!$('clean-enable').checked;$('import-save').disabled=!files.length||$('clean-enable').checked;};
+  $('file').onchange=()=>{files=[...$('file').files];$('selected-files').textContent=`已选择 ${files.length} 本：${files.map(f=>f.name).join('、')}`;invalidate();};
+  for(const id of ['encoding','clean-enable','clean-mode','rules'])$(id).oninput=invalidate;document.querySelectorAll('[name=preset]').forEach(e=>e.onchange=invalidate);
+  const prepare=async()=>{if(!files.length)throw Error('请先选择 TXT');if(files.length>100||files.reduce((a,f)=>a+f.size,0)>256*1024*1024)throw Error('一次最多 100 本，总大小不超过 256 MB');const records=[];for(const file of files){if(file.size>64*1024*1024)throw Error(file.name+'：单本上限为 64 MB');const original=await file.arrayBuffer(),decoded=decode(original,$('encoding').value),preview=cleaning.clean(decoded.text,options());records.push({file,original,decoded,preview});}return records;};
+  $('preview').onclick=()=>task(async()=>{prepared=await prepare();$('preview-result').textContent=prepared.map(({file,decoded,preview})=>`${file.name} · ${decoded.encoding}\n将删除 ${preview.removed} 行\n`+preview.matches.map(m=>`第 ${m.line} 行：${m.text}`).join('\n')).join('\n\n');$('import-save').disabled=false;});
+  $('import-save').onclick=()=>task(async()=>{const opt=options();if(opt.enabled&&!prepared)throw Error('请先预览');const records=prepared||await prepare();let added=0,skipped=0;
+   for(const {file,original,decoded,preview}of records){const id=await hash(original);if(state.entries[keyFor(id,'base')]){skipped++;continue;}const bytes=opt.enabled?new TextEncoder().encode(preview.text).buffer:original;
+    const addAsset=async(key,data)=>{await put('assets',assetKey(account,key),data);set(key,{hash:await hash(data),size:data.byteLength,parts:Math.ceil(data.byteLength/393216)});};
+    await addAsset(`asset/books/${id}.txt`,bytes);await addAsset(`asset/books/${id}.original.txt`,original);
+    set(keyFor(id,'base'),{id,title:file.name.replace(/\.txt$/i,''),encoding:opt.enabled?'utf-8':decoded.encoding,size:bytes.byteLength,updated:Date.now(),cleaning:{...opt,removed:preview.removed,originalEncoding:decoded.encoding}});
+    const s=mobileSettings(document.body.dataset.ui==='light'?{...defaults,background:'#fbf8f1',color:'#243c35'}:defaults);set(keyFor(id,'reading'),{settings:s,progress:null,counts:{total:paragraphs(preview.text).reduce((n,p)=>n+count(p.text),0),read:0}});await persist();added++;
+   }
+   set('prefs/cleaning',{...old,...opt,enabled:false});await persist();navigator.storage?.persist?.().catch(()=>{});closePanel();await library();toast(`已导入 ${added} 本${skipped?`，跳过 ${skipped} 本重复书籍`:''}`);
+  });
+ });
 }
+
 function shareFile(bytes, name) {
   const file = new File([bytes], name, { type: "text/plain" });
   if (navigator.canShare?.({ files: [file] }))
